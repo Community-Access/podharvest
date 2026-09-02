@@ -1,6 +1,6 @@
 # Accessibility statement
 
-podharvest is built for people who rely on assistive technology, and accessibility is treated as a functional requirement rather than a visual afterthought.
+podHarvest is built for people who rely on assistive technology, and accessibility is treated as a functional requirement rather than a visual afterthought.
 
 This document is deliberately specific about **what has been verified, what is implemented but unverified, and what does not work**. An overstated accessibility claim is worse than a missing feature: it tells someone to rely on something that will not be there. Where an earlier version of this document made a claim the code did not support, the claim has been removed and the gap is listed below.
 
@@ -49,13 +49,13 @@ Verified against `cli.py`:
 - No command requires interactive or TTY-only input. Anything the CLI can prompt for also has a corresponding flag, so it is fully scriptable and behaves identically under a screen reader, a CI runner, or a plain terminal. `--no-gui-prompt` (or `PODHARVEST_NO_GUI=1`) suppresses the optional GUI offer.
 - Running with no arguments always prints full usage text — never a stack trace, never silent behavior.
 - Output never depends on color; no ANSI escapes are emitted anywhere. `-q`/`-v`/`-vv` control verbosity and `--log-file` gives a persistent plain-text record.
-- Errors are specific and actionable — naming the exact missing dependency and the command that fixes it — wherever podharvest controls the error path.
+- Errors are specific and actionable — naming the exact missing dependency and the command that fixes it — wherever podHarvest controls the error path.
 
 The progress bar drawn on a TTY is a `\r`-updated ASCII bar, which reads poorly. It is suppressed automatically when output is not a terminal, and `--log-file` always receives plain percentage lines instead.
 
 ## Generated output
 
-This matters as much as the tool's own interface — the point of podharvest is to produce durable, accessible archives.
+This matters as much as the tool's own interface — the point of podHarvest is to produce durable, accessible archives.
 
 - **HTML** is produced by an allow-list sanitizer (`podharvest/convert.py`). It preserves real `<h1>`–`<h6>` headings, `<ul>`/`<ol>`/`<li>`, `<dl>`, `<table>` with `<caption>`, `<th>`, `scope` and `headers`, `<figure>`/`<figcaption>`, and `<track>` caption tracks on media.
 - Each episode page has a `<main>` landmark, exactly one `<h1>`, and a link back to the feed index. Headings supplied by the feed are demoted so they nest under the page title instead of competing with it, and empty headings are dropped.

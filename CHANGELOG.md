@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-02
+
+### Added
+
+- **Optional cloud transcription and summaries.** OpenAI and Google Gemini can transcribe; those two plus OpenRouter and Ollama Cloud can write summaries and chapter markers. Strictly opt-in: with no API key configured nothing is uploaded and no request is made. Keys are stored via DPAPI on Windows or the macOS Keychain, never in `settings.json`, with an environment variable override that is never overwritten from the UI.
+- **Gemini labels speakers as part of transcription**, so no separate diarization pass and no Hugging Face token is needed for that path.
+- **Chapter markers** with real start and end times, taken from the transcript's own segment timestamps. Written above the summary and, optionally, into the audio file itself, where a podcast player shows them as a navigable list. The audio is copied rather than re-encoded, so it is lossless and costs about eighty bytes.
+- **Per-model time and cost estimates** shown in a read-only description box beside the model picker, answering "how long will this take" before a run starts rather than after. Figures are marked as measured or estimated.
+- **A model source filter** (all / this machine / cloud), disabled entirely when no cloud key exists rather than left as a dead control.
+- **Full-episode summaries.** Previously only the first 24,000 characters were summarised, about 44% of an hour-long episode. Long transcripts are now summarised in sections and the section notes combined.
+- **A live episode list in the GUI** showing each episode's state, percentage and elapsed time, plus a status line, a completion dialog that takes focus, and a Cancel button that becomes "Open output folder" when a run ends.
+- **Configurable log file location**, and a Settings dialog reachable with Ctrl+comma.
+- Audio destined for a cloud provider is re-encoded to 16 kHz mono Opus, taking a 54 MB episode to about 7 MB so it fits in one request; anything still oversized is split at natural pauses found by silence detection and stitched back onto one timeline.
+
+### Fixed
+
+- **Parakeet was losing most of its accuracy to a chunking bug.** The window overlap was documented as trimmed but never was, so both windows decoded the shared audio and both copies of the words were kept: 33 insertions against 7 substitutions and 12 deletions. Word error rate on the benchmark clip went from 6.55% to 2.02%, making Parakeet the most accurate engine tested and 2.8x faster than the most accurate Whisper size. The README's previous recommendation to prefer `tiny.en` was wrong and has been corrected.
+- **Parakeet could crash on certain audio lengths.** A trailing window shorter than one 25 ms feature frame produced no frames and the model rejected the empty input.
+- **`ffprobe` was never found.** It was derived by replacing the first "ffmpeg" anywhere in the path, which corrupts any install directory named like `ffmpeg-9.0.1-full_build`.
+- **The summary model was reloaded from disk for every episode.** A 2.4 GB file, 54 times over a feed. It is now loaded once per process, and ASR engines are reused across runs rather than only within one.
+- **Audio decoding built a Python list of 57 million floats per episode**, costing 2.8 seconds and 1.7 GB. Vectorised: 0.14 seconds and 220 MB.
+- **A run looked frozen for minutes.** Nothing was logged for an episode until both its transcript and its summary had finished. Progress is now reported as work happens.
+- **Chapter markers that merely list the timeline are rejected.** A weak on-device model emitted 34 chapters exactly 60 seconds apart, which looks like a table of contents while carrying no information. Spacing is enforced and an evenly spaced set is discarded with an explanation.
+- **A transcript's header line always showed a clock-shaped duration** even with timestamps turned off, which read as a timestamp that the setting had failed to suppress.
+
+### Changed
+
+- **The product is written podHarvest.** The capital H is deliberate: a screen reader given "podharvest" pronounces it as one unpronounceable run of letters. The lowercase form remains the import name, the console command, the app directory and the environment variable prefix, where it is typed rather than spoken.
+- **The README is now written for end users** in plain language; the previous technical README moved to `docs/REFERENCE.md`, and the getting-started guide was rewritten for complete beginners.
+- Every user-facing log message rewritten in plain language.
+- Parakeet's default window is 30 seconds with no overlap, chosen by measuring every combination against both a human reference transcript and a whole-file no-boundary decode.
+- Settings warns, with measured figures, that on-device summaries take about 12 minutes per hour-long episode against roughly two seconds for a cloud model.
+
 ## [1.0.0] - 2026-09-02
 
 First public release.

@@ -1,6 +1,6 @@
 # Supported on-device models
 
-> **Licensing:** podharvest itself is MIT-licensed, but that does **not** extend to the
+> **Licensing:** podHarvest itself is MIT-licensed, but that does **not** extend to the
 > models it can download. Whisper, Parakeet, Canary, Vosk, Moonshine, Phi, Llama, Nemotron,
 > Mistral and pyannote each carry their own separate licence, and they are not all
 > permissive — Canary is CC-BY-NC-4.0 (non-commercial), and the Llama models have their own

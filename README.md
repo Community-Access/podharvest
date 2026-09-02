@@ -1,8 +1,8 @@
-# podharvest
+# podHarvest
 
 **Keep your favourite podcasts. Read them as well as hear them.**
 
-podharvest downloads a podcast and turns every episode into something you can read, search
+podHarvest downloads a podcast and turns every episode into something you can read, search
 and keep: the audio file, a written transcript, a summary, and a tidy folder you own. It runs
 on your own computer. No account, no subscription, no sending your listening habits anywhere.
 
@@ -10,7 +10,7 @@ Point it at a podcast. Go make a cup of tea. Come back to a library.
 
 ## What you get
 
-Give podharvest a podcast address and it builds you a folder like this, one entry per episode:
+Give podHarvest a podcast address and it builds you a folder like this, one entry per episode:
 
 - **The audio**, downloaded and named sensibly instead of `ep_final_FINAL_2.mp3`
 - **A transcript** you can read, search, or paste into anything
@@ -20,17 +20,17 @@ Give podharvest a podcast address and it builds you a folder like this, one entr
 - **The show notes**, saved as a web page, plain text and Markdown
 
 Everything is a normal file in a normal folder. Nothing is locked in an app. If you delete
-podharvest tomorrow, your library stays exactly where it is.
+podHarvest tomorrow, your library stays exactly where it is.
 
 ## Getting started
 
-1. Open podharvest.
+1. Open podHarvest.
 2. Paste the podcast's address into the **Feed URL** box. The show's ordinary web page usually
-   works, and podharvest will find the feed itself.
+   works, and podHarvest will find the feed itself.
 3. Check **Transcribe downloaded audio** if you want transcripts as well as audio.
 4. Press **Start**.
 
-That is genuinely it. podharvest works out what your computer can handle and picks a suitable
+That is genuinely it. podHarvest works out what your computer can handle and picks a suitable
 transcription model on its own. The first run downloads that model, so it takes a few minutes
 longer than every run after it.
 
@@ -39,7 +39,7 @@ Want more detail, including how to install it? See the
 
 ## How long will it take?
 
-Transcribing is the slow part, and podharvest tells you before you commit. Select any model
+Transcribing is the slow part, and podHarvest tells you before you commit. Select any model
 and the **About this model** box gives you a straight answer for the podcast you have loaded:
 something like "About 3 hours 8 minutes (measured on this machine)".
 
@@ -64,7 +64,7 @@ You do not need this. The free model that runs on your own computer was the most
 everything tested, cloud services included. The cloud option is there if you want it, not
 because you need it.
 
-If you never add a key, podharvest never contacts any of them, and your audio never leaves
+If you never add a key, podHarvest never contacts any of them, and your audio never leaves
 your computer.
 
 ### What about really long episodes?
@@ -74,7 +74,7 @@ They just work. You do not have to do anything.
 Transcribing on your own computer has no length limit at all. A three-hour episode is fine.
 
 Cloud providers do have a size limit on what you can send them in one go, usually around
-25 MB, and a typical hour-long episode is twice that. podharvest handles it for you: before
+25 MB, and a typical hour-long episode is twice that. podHarvest handles it for you: before
 uploading it makes a compact copy of the audio tuned for speech, which brings an hour down to
 about 7 MB, so nearly every episode fits in one piece. If something is still too big, it is
 split into parts at natural pauses in the speech, never in the middle of a word, and the
@@ -87,7 +87,7 @@ upload and thrown away afterwards.
 
 ### Just the audio, no transcripts
 
-Uncheck **Transcribe downloaded audio**. podharvest becomes a straightforward podcast
+Uncheck **Transcribe downloaded audio**. podHarvest becomes a straightforward podcast
 downloader that also saves the show notes properly.
 
 ### Only the last few episodes
@@ -126,12 +126,12 @@ Type a folder into **Output folder**, or press **Browse** and pick one.
 
 ### Keep a record of what happened
 
-podharvest saves a log of every run. Choose where it goes in **Settings**, under
+podHarvest saves a log of every run. Choose where it goes in **Settings**, under
 **Activity log**. Handy if something goes wrong and you want to say what.
 
 ## Using a keyboard
 
-podharvest is built to be driven entirely from the keyboard, and to work properly with a
+podHarvest is built to be driven entirely from the keyboard, and to work properly with a
 screen reader. Nothing needs a mouse.
 
 | Key | What it does |
@@ -158,7 +158,7 @@ The `.srt` and `.vtt` files are subtitle files, and subtitles are made of timest
 transcript itself is the `.md` or `.txt` file. You can turn subtitle files off in Settings.
 
 **It says it cannot find the podcast.** Try the show's normal web page address instead of the
-feed address. podharvest will hunt for the feed.
+feed address. podHarvest will hunt for the feed.
 
 **Summaries only cover the first half.** Turn on **Summarise the whole episode** in Settings.
 It takes longer but covers everything.
@@ -177,6 +177,6 @@ your own audio, and a great deal of configuration. None of it is required.
 
 ## Licence
 
-podharvest is free and open source under the [MIT licence](LICENSE). The transcription models
+podHarvest is free and open source under the [MIT licence](LICENSE). The transcription models
 it downloads each carry their own licence: see the [model catalogue](docs/MODELS.md) before
 using one commercially.

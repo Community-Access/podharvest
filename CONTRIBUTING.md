@@ -1,4 +1,4 @@
-# Contributing to podharvest
+# Contributing to podHarvest
 
 Thanks for considering a contribution. This project archives podcast feeds and transcribes them on-device by default, with optional opt-in cloud providers, and it is used in part by people who rely on assistive technology — which shapes a few of the guidelines below.
 

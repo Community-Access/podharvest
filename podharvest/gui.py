@@ -1,4 +1,4 @@
-"""wxPython desktop front-end for podharvest.
+"""wxPython desktop front-end for podHarvest.
 
 Accessibility notes, stated precisely because overstating them helps nobody:
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from podharvest import __version__
+from podharvest import DISPLAY_NAME, __version__
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
@@ -421,7 +421,7 @@ class SettingsDialog(wx.Dialog):
 
 class MainFrame(wx.Frame):
     def __init__(self) -> None:
-        super().__init__(None, title=f"podharvest {__version__}", size=(880, 720))
+        super().__init__(None, title=f"{DISPLAY_NAME} {__version__}", size=(880, 720))
         self.app_space = appspace_mod.resolve()
         self.app_space.activate()
         self.settings = config_mod.load(self.app_space)
@@ -492,7 +492,7 @@ class MainFrame(wx.Frame):
         self._menu_open_log = file_menu.Append(wx.ID_ANY, "Open log &folder",
                                                "Open the folder holding the saved log file")
         file_menu.AppendSeparator()
-        file_menu.Append(wx.ID_EXIT, "E&xit\tAlt+F4", "Close podharvest")
+        file_menu.Append(wx.ID_EXIT, "E&xit\tAlt+F4", f"Close {DISPLAY_NAME}")
         bar.Append(file_menu, "&File")
 
         view_menu = wx.Menu()
@@ -505,7 +505,7 @@ class MainFrame(wx.Frame):
         bar.Append(view_menu, "&View")
 
         help_menu = wx.Menu()
-        help_menu.Append(wx.ID_ABOUT, "&About podharvest", "Version and project information")
+        help_menu.Append(wx.ID_ABOUT, f"&About {DISPLAY_NAME}", "Version and project information")
         bar.Append(help_menu, "&Help")
 
         self.SetMenuBar(bar)
@@ -545,10 +545,11 @@ class MainFrame(wx.Frame):
     def _on_about(self, _evt) -> None:
         from podharvest import HOMEPAGE
         wx.MessageBox(
-            f"podharvest {__version__}\n\n"
+            f"{DISPLAY_NAME} {__version__}\n\n"
             "Archive any RSS/Atom/podcast feed as Markdown, HTML, plain text and "
             "JSON, download every enclosure, and transcribe the audio on this "
-            "machine.\n\n"
+            "machine. Optional cloud providers are available with your own API "
+            "key.\n\n"
             f"{HOMEPAGE}\n\n"
             "Keyboard shortcuts:\n"
             "  Ctrl+R        Start harvest\n"
@@ -558,7 +559,7 @@ class MainFrame(wx.Frame):
             "  Ctrl+D        Re-detect hardware\n"
             "  Ctrl+comma    Settings\n"
             "  Ctrl+Shift+O  Open output folder",
-            "About podharvest", wx.OK | wx.ICON_INFORMATION, self)
+            f"About {DISPLAY_NAME}", wx.OK | wx.ICON_INFORMATION, self)
 
     # -- UI construction -----------------------------------------------
 
@@ -1063,7 +1064,7 @@ class MainFrame(wx.Frame):
             self._set_progress_text(
                 f"Episode {prog.index} of {prog.total} - {doing} '{prog.title}'{extra} - "
                 f"{prog.percent:.0f}% of this episode, {overall}% of everything.")
-        self.SetTitle(f"{overall}% - podharvest {__version__}")
+        self.SetTitle(f"{overall}% - {DISPLAY_NAME} {__version__}")
 
     def _open_folder(self, path: str) -> None:
         try:
@@ -1245,7 +1246,7 @@ class MainFrame(wx.Frame):
         self.progress.SetValue(100 if not cancelled and not self._run_failed
                                else self.progress.GetValue())
         self._set_progress_text(f"{headline} {body.splitlines()[0]}")
-        self.SetTitle(f"podharvest {__version__}")
+        self.SetTitle(f"{DISPLAY_NAME} {__version__}")
         LOG.info("%s %s", headline, body.replace("\n\n", " ").replace("\n", " "))
 
         # The button that stopped the run becomes the way into the results, so

@@ -1,4 +1,4 @@
-# podharvest technical reference
+# podHarvest technical reference
 
 This is the full reference: every command, flag, setting and model. If you just want to use the app, start with the [README](../README.md) instead.
 
@@ -78,9 +78,9 @@ python main.py gui
 
 Requires Python 3.10+. The core pipeline runs on the standard library alone — `wxPython` is only needed for the GUI, and every ASR engine installs on demand the first time you use it.
 
-**Paste the show's web page, not just its feed.** podharvest looks for a feed link on any HTML page you give it, so `https://acbda.org/podcast` works as well as `https://acbda.org/feed`.
+**Paste the show's web page, not just its feed.** podHarvest looks for a feed link on any HTML page you give it, so `https://acbda.org/podcast` works as well as `https://acbda.org/feed`.
 
-**New to podharvest?** [`GETTING_STARTED.md`](GETTING_STARTED.md) walks through installing, your first fetch, and your first transcription step by step.
+**New to podHarvest?** [`GETTING_STARTED.md`](GETTING_STARTED.md) walks through installing, your first fetch, and your first transcription step by step.
 
 ## Command-line usage
 
@@ -141,7 +141,7 @@ Every field you change is remembered (via the same `settings.json` the CLI uses)
 
 ## Supported on-device models
 
-Everything below runs locally and is downloaded on first use straight into the portable app space. Cloud providers are available too but are strictly opt-in and need your own API key: see the "Optional cloud models" section. With no key configured, podharvest makes no call to any transcription service (see [`MODELS.md`](MODELS.md) for the full catalogue, licenses, and technical notes).
+Everything below runs locally and is downloaded on first use straight into the portable app space. Cloud providers are available too but are strictly opt-in and need your own API key: see the "Optional cloud models" section. With no key configured, podHarvest makes no call to any transcription service (see [`MODELS.md`](MODELS.md) for the full catalogue, licenses, and technical notes).
 
 ### Speech-to-text (ASR)
 
@@ -203,7 +203,7 @@ No reference transcript handy? Use `--reference "some text"` to apply the same r
 
 ## Optional cloud models
 
-podharvest runs entirely on your machine by default and needs no account with anyone. If you
+podHarvest runs entirely on your machine by default and needs no account with anyone. If you
 want to, you can add your own API key for a cloud provider and pick its models instead.
 Nothing is uploaded unless you add a key **and** select a cloud model.
 
@@ -277,6 +277,25 @@ succeeded, so an interrupted write cannot truncate an episode.
 
 Chapters need a model that returns per-segment timestamps. The OpenAI GPT-4o transcribe models
 return plain text only and are skipped with a log line saying so.
+
+## A note on the name
+
+The product is written **podHarvest**. The capital H is deliberate: a screen
+reader given "podharvest" pronounces it as one unpronounceable run of letters,
+while "podHarvest" is spoken as the two words it actually is.
+
+The lowercase form is kept everywhere the name is typed rather than spoken, and
+changing it would break something:
+
+| Lowercase, unchanged | Why |
+|---|---|
+| `import podharvest` | Python package name |
+| `podharvest` command | Case-sensitive on Linux and macOS |
+| `~/.podharvest` | Renaming would orphan downloaded models and settings |
+| `PODHARVEST_*` | Environment variables are conventionally uppercase |
+| The repository URL | Already published |
+
+In code, `podharvest.DISPLAY_NAME` holds the spoken form so it is defined once.
 
 ## Settings reference
 
@@ -412,4 +431,4 @@ Contributions are welcome — see [CONTRIBUTING.md](../CONTRIBUTING.md) for setu
 
 ## License
 
-podharvest is [MIT licensed](../LICENSE). Models it can download each carry their own license — see [`MODELS.md`](MODELS.md) before using any of them commercially.
+podHarvest is [MIT licensed](../LICENSE). Models it can download each carry their own license — see [`MODELS.md`](MODELS.md) before using any of them commercially.

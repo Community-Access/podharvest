@@ -1,6 +1,6 @@
 # Your first podcast
 
-This walks you through installing podharvest and archiving your first show. It assumes no
+This walks you through installing podHarvest and archiving your first show. It assumes no
 technical knowledge at all. If anything here reads as jargon, that is a bug in this document,
 and you are welcome to say so.
 
@@ -29,14 +29,14 @@ You need the address of the show. Either of these works:
 - The show's ordinary web page, for example `https://acbda.org/podcast`
 - The feed address, which often ends in `/feed` or `/rss`
 
-Use the web page if you have it. podharvest will find the feed on its own.
+Use the web page if you have it. podHarvest will find the feed on its own.
 
 ## Step 3: Run it
 
 1. Paste the address into the **Feed URL** box at the top.
 2. Press **Start**.
 
-podharvest reads the show's episode list, saves the show notes for every episode, and
+podHarvest reads the show's episode list, saves the show notes for every episode, and
 downloads the audio. For a podcast with a long back catalogue this can take a while, because
 it is downloading real audio files. The progress bar and the **Episodes** list keep you
 informed throughout.
@@ -53,7 +53,7 @@ Transcripts are the good bit, so they get their own step.
    it is, and roughly how long this podcast will take.
 3. Press **Start**.
 
-The very first time, podharvest downloads the transcription model. That is a one-off download
+The very first time, podHarvest downloads the transcription model. That is a one-off download
 of a couple of gigabytes, and it never happens again.
 
 After that, each episode takes a few minutes. An hour of audio is about three and a half
@@ -99,7 +99,7 @@ The audio is not re-encoded, so nothing is lost.
 **Save a log file.** Keeps a record of each run, and lets you choose where it goes.
 
 There is no limit on how long an episode can be. Three-hour episodes are fine. If you use a
-cloud provider, podharvest deals with their upload limits on your behalf without asking you
+cloud provider, podHarvest deals with their upload limits on your behalf without asking you
 anything.
 
 ## If you get stuck

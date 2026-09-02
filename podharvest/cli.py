@@ -122,11 +122,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p_hw)
 
     p_gui = sub.add_parser("gui", help="Launch the wxPython desktop application.",
-                            description="Launch the graphical podharvest application (requires wxPython).")
+                            description="Launch the graphical podHarvest application (requires wxPython).")
     _add_common(p_gui)
 
     p_info = sub.add_parser("info", help="Show the portable app-space paths in use.",
-                             description="Print where podharvest keeps its models, cache, config and logs.")
+                             description="Print where podHarvest keeps its models, cache, config and logs.")
     _add_common(p_info)
 
     p_bench = sub.add_parser("benchmark", help="Compare ASR models/engines on the same audio file(s).",
@@ -403,7 +403,7 @@ def _maybe_offer_gui(args: argparse.Namespace) -> bool:
     except ImportError:
         return False
     try:
-        answer = input("No command given. Launch the podharvest GUI? [Y/n] ").strip().lower()
+        answer = input("No command given. Launch the podHarvest GUI? [Y/n] ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
