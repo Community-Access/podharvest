@@ -111,3 +111,46 @@ class TestKeyOwnership:
         ok, message = verify_key(appspace.resolve(), "openai", "sk-ant-not-a-real-key")
         assert ok is False
         assert "Anthropic" in message
+
+
+class TestMoneyWording:
+    """Per-minute rates are hand-copied from provider pricing pages, so a
+    figure like "$9.72" claims accuracy the input does not have."""
+
+    def test_rounds_to_honest_precision(self):
+        from podharvest.estimate import money
+        assert money(0.02) == "a few cents"
+        assert money(0.40) == "40 cents"
+        assert money(3.24) == "$3"
+        assert money(9.72) == "$10"
+        assert money(87.0) == "$85"
+
+    def test_zero_and_negative(self):
+        from podharvest.estimate import money
+        assert money(0) == "nothing"
+        assert money(-1) == "nothing"
+
+
+class TestPriceProvenance:
+    def test_a_stale_price_says_so_and_links_out(self):
+        from podharvest import cloud
+        from podharvest.estimate import describe_model
+        openai_model = next(c for c in cloud.CLOUD_ASR_CHOICES if c.provider == "openai")
+        text = describe_model(openai_model, 3600)
+        assert cloud.PRICES_CHECKED in text
+        assert "not updated automatically" in text
+        assert cloud.PROVIDERS["openai"].pricing_url in text
+
+    def test_only_openrouter_claims_live_pricing(self):
+        from podharvest.cloud import PROVIDERS
+        live = {n for n, p in PROVIDERS.items() if p.live_pricing}
+        assert live == {"openrouter"}
+
+    def test_every_provider_links_to_its_prices(self):
+        from podharvest.cloud import PROVIDERS
+        assert all(p.pricing_url.startswith("https://") for p in PROVIDERS.values())
+
+    def test_live_prices_are_empty_without_a_key(self):
+        from podharvest import appspace
+        from podharvest.cloud import live_prices
+        assert live_prices(appspace.resolve(), "openai") == {}

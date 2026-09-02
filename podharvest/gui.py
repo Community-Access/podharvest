@@ -1063,7 +1063,7 @@ class MainFrame(wx.Frame):
                 "be running.")
             return
         text = estimate_mod.describe_model(choice, self._estimated_audio_seconds,
-                                           getattr(self, "_hw", None))
+                                           getattr(self, "_hw", None), self.app_space)
         self.model_info.SetValue(text)
         # The first line is the model name; keep the caret at the top so a
         # screen reader starts reading from the beginning.

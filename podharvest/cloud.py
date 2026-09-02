@@ -40,6 +40,14 @@ SUMMARY_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud")
 ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud")
 
 
+#: When the hardcoded prices below were last checked against each provider's
+#: published rates. Only OpenRouter offers a pricing API; OpenAI and Google do
+#: not, so their figures are copied by hand and go stale silently. Every cost
+#: shown to a user carries this date, because an out-of-date number presented
+#: confidently is worse than no number at all.
+PRICES_CHECKED = "2026-09-02"
+
+
 @dataclass(frozen=True)
 class Provider:
     name: str
@@ -48,6 +56,11 @@ class Provider:
     key_hint: str
     can_transcribe: bool
     can_summarise: bool
+    #: Where a person can see the current rates for themselves.
+    pricing_url: str = ""
+    #: True when the provider publishes prices through its API, so podharvest
+    #: can read them at runtime instead of trusting a constant.
+    live_pricing: bool = False
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -55,23 +68,27 @@ PROVIDERS: dict[str, Provider] = {
         "openai", "OpenAI",
         "https://platform.openai.com/api-keys",
         "Starts with 'sk-'. Billed to your OpenAI account.",
-        can_transcribe=True, can_summarise=True),
+        can_transcribe=True, can_summarise=True,
+        pricing_url="https://openai.com/api/pricing/", live_pricing=False),
     "gemini": Provider(
         "gemini", "Google Gemini",
         "https://aistudio.google.com/apikey",
         "From Google AI Studio. Has a free tier with daily limits.",
-        can_transcribe=True, can_summarise=True),
+        can_transcribe=True, can_summarise=True,
+        pricing_url="https://ai.google.dev/pricing", live_pricing=False),
     "openrouter": Provider(
         "openrouter", "OpenRouter",
         "https://openrouter.ai/keys",
         "One key for many text models. Summaries only - OpenRouter has no "
         "speech-to-text endpoint.",
-        can_transcribe=False, can_summarise=True),
+        can_transcribe=False, can_summarise=True,
+        pricing_url="https://openrouter.ai/models", live_pricing=True),
     "ollama-cloud": Provider(
         "ollama-cloud", "Ollama Cloud",
         "https://ollama.com/settings/keys",
         "Hosted Ollama models. Summaries only - no speech-to-text endpoint.",
-        can_transcribe=False, can_summarise=True),
+        can_transcribe=False, can_summarise=True,
+        pricing_url="https://ollama.com/pricing", live_pricing=False),
 }
 
 
@@ -770,3 +787,70 @@ def transcribe_in_parts(audio_path: Path, temp_dir: Path, provider: str,
             if part != audio_path:
                 part.unlink(missing_ok=True)
     return all_segments, language, total
+
+
+# -- live pricing ------------------------------------------------------------
+
+#: Cache of a provider's published prices, so the model list does not make a
+#: network call every time someone arrows through it. Cleared when the process
+#: ends; prices do not move within a session.
+_PRICE_CACHE: dict[str, dict[str, dict[str, float]]] = {}
+
+
+def live_prices(app, provider: str) -> dict[str, dict[str, float]]:
+    """Current per-token prices from a provider that publishes them.
+
+    Returns {model_id: {"prompt": usd_per_token, "completion": usd_per_token}},
+    or an empty mapping when the provider has no pricing API, has no key, or
+    cannot be reached. Never raises: a missing price is a cosmetic problem, and
+    falling back to the stored figure is better than failing to draw a menu.
+    """
+    entry = PROVIDERS.get(provider)
+    if entry is None or not entry.live_pricing:
+        return {}
+    if provider in _PRICE_CACHE:
+        return _PRICE_CACHE[provider]
+
+    key = load_key(app, provider)
+    if not key:
+        return {}
+
+    import urllib.error
+    import urllib.request
+    try:
+        req = urllib.request.Request("https://openrouter.ai/api/v1/models")
+        req.add_header("Authorization", f"Bearer {key}")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        LOG.debug("Could not read live prices from %s: %s", provider, exc)
+        return {}
+
+    prices: dict[str, dict[str, float]] = {}
+    for model in payload.get("data") or []:
+        pricing = model.get("pricing") or {}
+        try:
+            prices[model["id"]] = {
+                "prompt": float(pricing.get("prompt") or 0.0),
+                "completion": float(pricing.get("completion") or 0.0),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+    _PRICE_CACHE[provider] = prices
+    LOG.debug("Read live prices for %d %s models.", len(prices), provider)
+    return prices
+
+
+def price_note(app, choice) -> str:
+    """A one-line current price for `choice`, or "" when none is available."""
+    prices = live_prices(app, choice.provider)
+    entry = prices.get(choice.model)
+    if not entry:
+        return ""
+    # Per-token figures are unreadable; a summary is a few thousand tokens, so
+    # quote the cost of the job someone is actually about to run.
+    per_summary = entry["prompt"] * 8000 + entry["completion"] * 700
+    if per_summary <= 0:
+        return "Free on this provider right now."
+    from podharvest.estimate import money
+    return f"Current price: about {money(per_summary)} per episode summary."

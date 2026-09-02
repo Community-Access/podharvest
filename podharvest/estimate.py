@@ -53,8 +53,26 @@ class Estimate:
                else "estimated")
         text = f"About {spoken_duration(self.seconds)} ({how})."
         if self.is_cloud and self.cost_usd > 0:
-            text += f" Roughly ${self.cost_usd:.2f} in provider charges."
+            text += f" Around {money(self.cost_usd)} in provider charges."
         return text
+
+
+def money(usd: float) -> str:
+    """Round a cost to the precision the underlying figure actually supports.
+
+    The per-minute rates behind this are typed in by hand from a provider's
+    published prices, so "$9.72" claims an accuracy that does not exist. Costs
+    are rounded to something honestly approximate instead.
+    """
+    if usd <= 0:
+        return "nothing"
+    if usd < 0.10:
+        return "a few cents"
+    if usd < 1:
+        return f"{round(usd * 10) * 10:.0f} cents"
+    if usd < 10:
+        return f"${usd:.0f}"
+    return f"${round(usd / 5) * 5:.0f}"
 
 
 def estimate_for(choice: ModelChoice, audio_seconds: float,
@@ -77,7 +95,7 @@ def estimate_for(choice: ModelChoice, audio_seconds: float,
 
 
 def describe_model(choice: ModelChoice, audio_seconds: float = 0.0,
-                   hw: Hardware | None = None) -> str:
+                   hw: Hardware | None = None, app=None) -> str:
     """A full, readable description of one model.
 
     This is what fills the read-only description box beside the model list, so
@@ -100,10 +118,31 @@ def describe_model(choice: ModelChoice, audio_seconds: float = 0.0,
                      f"audio ({pace}).")
 
     if choice.is_cloud:
+        from podharvest.cloud import PRICES_CHECKED, PROVIDERS
+        entry = PROVIDERS.get(choice.provider)
         if choice.cost_per_audio_minute:
             per_hour = choice.cost_per_audio_minute * 60
-            lines.append(f"Cost: about ${choice.cost_per_audio_minute:.3f} per minute of "
-                         f"audio, so roughly ${per_hour:.2f} an hour.")
+            lines.append(f"Cost: roughly {money(per_hour)} per hour of audio.")
+            # Say where the number came from and when. Providers change prices
+            # and only OpenRouter publishes them through an API, so this figure
+            # is a hand-copied snapshot and should be presented as one.
+            if entry and entry.live_pricing:
+                lines.append(f"{entry.label} publishes current prices, so this figure is "
+                             "read from them rather than stored.")
+            else:
+                lines.append(f"That price was last checked on {PRICES_CHECKED} and is "
+                             "not updated automatically, because this provider does not "
+                             "publish prices in a form the app can read. Check the "
+                             "current rate before relying on it"
+                             + (f": {entry.pricing_url}" if entry and entry.pricing_url
+                                else "."))
+        # Where the provider publishes prices, show the current one rather than
+        # the stored figure.
+        if entry and entry.live_pricing and app is not None:
+            from podharvest.cloud import price_note
+            note = price_note(app, choice)
+            if note:
+                lines.append(note)
         lines.append("Your audio is uploaded to the provider. Your API key pays for it.")
     else:
         if choice.size_gb:
