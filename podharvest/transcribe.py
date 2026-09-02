@@ -345,7 +345,10 @@ class SherpaOnnxParakeetEngine:
             tokens = list(getattr(stream.result, "tokens", None) or [])
             stamps = list(getattr(stream.result, "timestamps", None) or [])
             if skip_before and tokens and len(stamps) == len(tokens):
-                text = "".join(tok for tok, ts in zip(tokens, stamps)
+                # strict=True: the lengths are checked equal just above, so a
+                # mismatch here would mean the recognizer changed its contract
+                # and should fail loudly rather than silently drop tokens.
+                text = "".join(tok for tok, ts in zip(tokens, stamps, strict=True)
                                if ts >= skip_before).strip()
             else:
                 text = stream.result.text.strip()

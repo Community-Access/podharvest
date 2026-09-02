@@ -561,8 +561,10 @@ def _silence_points(audio_path: Path, ffmpeg: str) -> list[float]:
         capture_output=True, text=True)
     starts = [float(m) for m in re.findall(r"silence_start:\s*([\d.]+)", proc.stderr)]
     ends = [float(m) for m in re.findall(r"silence_end:\s*([\d.]+)", proc.stderr)]
-    # The middle of each silence is the safest place to cut.
-    return sorted((s + e) / 2 for s, e in zip(starts, ends) if e > s)
+    # The middle of each silence is the safest place to cut. strict=False is
+    # deliberate: a silence still open when the file ends has a start and no
+    # matching end, so the two lists legitimately differ in length.
+    return sorted((s + e) / 2 for s, e in zip(starts, ends, strict=False) if e > s)
 
 
 def _duration_seconds(audio_path: Path, ffmpeg: str) -> float:
