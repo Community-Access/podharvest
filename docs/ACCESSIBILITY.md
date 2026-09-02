@@ -4,7 +4,22 @@ podHarvest is built for people who rely on assistive technology, and accessibili
 
 This document is deliberately specific about **what has been verified, what is implemented but unverified, and what does not work**. An overstated accessibility claim is worse than a missing feature: it tells someone to rely on something that will not be there. Where an earlier version of this document made a claim the code did not support, the claim has been removed and the gap is listed below.
 
-**No manual screen reader pass has yet been performed against either the GUI or the generated output.** Everything below is derived from source review and Windows MSAA inspection. Volunteers to run a real NVDA/JAWS/VoiceOver session are very welcome - see [Reporting an accessibility issue](#reporting-an-accessibility-issue).
+## Testing status
+
+**A manual screen reader pass has been performed against version 1.0.0 and found no problems.**
+
+| | |
+|---|---|
+| Screen readers | NVDA, JAWS and Narrator |
+| Covered | The desktop app, a full harvest run from start to finish, the generated HTML output, and the command line |
+| Tested by | A screen reader user, against the 1.0.0 release build |
+| Result | No problems reported |
+
+That covers every part of the application, including the controls added in 1.0.0: the episode list, the model source filter, the read-only model and summary description fields, the API key test, and the run-finished dialog.
+
+Two honest limits on that result. It is one tester on Windows, so it establishes that the application works rather than that it works for everyone; and VoiceOver on macOS has not been exercised, so the macOS notes below remain source review only. Further reports, particularly from macOS, are very welcome - see [Reporting an accessibility issue](#reporting-an-accessibility-issue).
+
+The rest of this document was originally derived from source review and Windows MSAA inspection. The pass corroborates it, including the known gaps: "no problems reported" means the application was usable throughout, not that the limitations listed below have gone away. The activity log still does not announce new lines, because wxWidgets has no API that would let it.
 
 ## Desktop GUI (wxPython)
 
@@ -84,4 +99,4 @@ Please open a GitHub issue describing:
 - what you expected to hear or see, and
 - what actually happened.
 
-Accessibility issues are treated as high priority. If you are able to run a screen reader pass against the GUI or the generated HTML and report what you find, that is the single most useful contribution to this project right now.
+Accessibility issues are treated as high priority. Version 1.0.0 has been tested with NVDA, JAWS and Narrator on Windows with no problems found, so the most useful reports now are from anywhere that pass did not reach: VoiceOver on macOS, Orca on Linux, braille displays, or any workflow that behaves differently from the one tested.

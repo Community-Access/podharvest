@@ -358,7 +358,7 @@ Resolution order: `--app-dir` flag → `PODHARVEST_HOME` env var → a `.podharv
 
 ## Accessibility
 
-Accessibility is a functional requirement here, and this section is deliberately specific about what has been verified versus what has not. **No manual screen reader pass has been performed yet** - [`ACCESSIBILITY.md`](ACCESSIBILITY.md) says so plainly and lists every known gap. Running one and reporting what you find is the most useful contribution anyone could make to this project right now.
+Accessibility is a functional requirement here, and this section is deliberately specific about what has been verified versus what has not. **Version 1.0.0 has been through a manual screen reader pass with NVDA, JAWS and Narrator, covering the desktop app, a full run, the generated HTML and the command line, with no problems reported.** That is one tester on Windows; VoiceOver on macOS has not been exercised. [`ACCESSIBILITY.md`](ACCESSIBILITY.md) records exactly what was covered and what remains untested.
 
 What works today:
 
