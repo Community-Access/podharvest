@@ -1,0 +1,25 @@
+# Optional, heavier dependencies for on-device transcription and enrichment.
+#
+# Not required to use podharvest for feed harvesting/conversion/download.
+# podharvest installs these automatically into its own isolated folder
+# (AppSpace.python_packages_dir) the first time you request a given engine,
+# so most users never need to touch this file. Install it manually if you
+# want everything available up front (e.g. an offline machine, or building
+# a fully self-contained PyInstaller bundle).
+
+huggingface_hub>=0.24        # model downloads for faster-whisper/Parakeet/Canary/GGUF
+faster-whisper>=1.0          # CTranslate2 Whisper - the default, portable ASR engine
+vosk>=0.3.45                 # pure-CPU fallback ASR, no AVX2/GPU required
+
+# NVIDIA GPU only (needs a CUDA build of torch installed separately):
+# nemo_toolkit[asr]>=2.0     # Parakeet + Canary
+
+# Optional transcript enrichment (punctuation/casing cleanup, summaries,
+# chapter titles) via a local GGUF LLM through llama.cpp:
+# llama-cpp-python>=0.2.90
+
+# Optional speaker diarization ("who is speaking"):
+# pyannote.audio>=3.3
+
+# Apple Silicon acceleration (macOS only):
+# mlx>=0.16

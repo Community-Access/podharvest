@@ -1,0 +1,12 @@
+# Core runtime dependencies.
+#
+# podharvest's CLI (fetch/hardware/info/settings) is deliberately built on
+# the Python standard library only, so it runs anywhere Python 3.10+ runs
+# with zero installs. The one exception is the optional desktop GUI:
+wxPython>=4.2
+
+# Everything else - ASR engines, diarization, enrichment LLMs - is heavy,
+# optional, and installed on demand into the portable app space the first
+# time you actually use it (see podharvest/acquire.py). See
+# requirements-asr.txt if you'd rather pre-install everything up front
+# (e.g. for an offline machine or a from-scratch PyInstaller build).

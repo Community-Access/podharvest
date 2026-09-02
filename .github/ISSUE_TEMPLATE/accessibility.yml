@@ -1,0 +1,71 @@
+name: Accessibility issue
+description: Report a barrier in the app, or in the archives it produces
+title: "[a11y]: "
+labels: ["accessibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. Accessibility issues are treated as high priority.
+
+        If you are reporting what a screen reader announced (or failed to announce), that is
+        especially valuable — no formal screen reader pass has been done on this project yet,
+        and `docs/ACCESSIBILITY.md` says so plainly.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did you hit this?
+      options:
+        - The desktop GUI
+        - The command line
+        - Generated HTML output
+        - Generated Markdown or plain text output
+        - Generated transcripts (SRT/VTT/Markdown)
+        - Documentation
+    validations:
+      required: true
+
+  - type: input
+    id: at
+    attributes:
+      label: Assistive technology and version
+      description: For example "NVDA 2024.4", "JAWS 2025", "VoiceOver on macOS 15", or "keyboard only".
+      placeholder: NVDA 2024.4 on Windows 11
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What should have been announced, focused, or reachable?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened?
+      description: If your screen reader said something specific, quoting it verbatim helps a lot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `podharvest gui`
+        2. Tab to ...
+        3. ...
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: podharvest version
+      description: Output of `podharvest --version`.
+    validations:
+      required: false

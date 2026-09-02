@@ -1,0 +1,64 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# PyInstaller build output
+build/
+dist/
+*.manifest
+
+# podharvest's own portable runtime data (models, downloads, logs, config)
+# - never commit downloaded models, logs, or a user's personal settings.
+.podharvest-home/
+models/
+cache/
+logs/
+tmp/
+feeds/
+config/settings.json
+podharvest-*-portable.zip
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.history/
+
+# Build environments created by scripts/build_installer.ps1 and run.bat
+.buildenv/
+.venv*/
+
+# Harvested output from local runs. `out/` in particular has held multiple GB
+# of a third party's podcast audio - never commit downloaded feed content.
+out/
+output/
+*.mp3
+*.m4a
+*.mp4
+*.wav
+*.opus
+
+# Benchmark fixtures are large media; the report is committed, the audio is not.
+bench/*.mp3
+bench/*.wav
+
+# Packaging output
+dist/
+build/
+*.egg-info/

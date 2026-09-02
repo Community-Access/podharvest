@@ -1,0 +1,93 @@
+name: Bug report
+description: Something went wrong
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a feed that fails to parse or download, **the feed URL is the single most useful
+        thing you can include** — most parsing bugs cannot be reproduced without it.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      validations:
+        required: true
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact command you ran
+      render: shell
+      placeholder: podharvest fetch https://example.org/feed --limit 5 --transcribe
+    validations:
+      required: false
+
+  - type: input
+    id: feed
+    attributes:
+      label: Feed URL
+      description: If this involves a specific feed. Leave blank if not applicable or private.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Re-run with `-vv --log-file podharvest.log` and paste the relevant part.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: podharvest version
+      description: Output of `podharvest --version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python --version`. Not needed for the packaged .exe build.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - pip install podharvest
+        - Portable .zip build
+        - Windows installer (.exe)
+        - run.bat
+        - From source
+    validations:
+      required: false

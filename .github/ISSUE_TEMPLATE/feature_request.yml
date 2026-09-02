@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a capability or improvement
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation you are in, not just the feature you want.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like podharvest to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Does this fit the project's scope?
+      description: podharvest runs entirely on-device; it does not call cloud transcription APIs.
+      options:
+        - label: This does not require sending audio or feed content to a third-party service.
+          required: false
