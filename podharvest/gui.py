@@ -37,6 +37,7 @@ from podharvest import DISPLAY_NAME, __version__
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
+from podharvest.keystore import load_key as keystore_load
 from podharvest.util import LOG, spoken_duration
 
 try:
@@ -295,7 +296,74 @@ class SettingsDialog(wx.Dialog):
             grid.Add(label, 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(field, 1, wx.EXPAND)
         box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+
+        # Without this, a wrong key is only discovered part-way through a long
+        # run, as a failure that could equally mean the key was never saved,
+        # was rejected, or the network was down. One button removes the guessing.
+        self.test_keys_btn = wx.Button(holder, label="&Test these keys now")
+        self.test_keys_btn.Bind(wx.EVT_BUTTON, self._on_test_keys)
+        self.test_keys_btn.SetToolTip(
+            "Contacts each provider you have entered a key for and reports whether it "
+            "works. Only lists the available models, so it costs nothing.")
+        box.Add(self.test_keys_btn, 0, wx.LEFT | wx.BOTTOM, 6)
+
+        # Read-only and multi-line so the result is a real tab stop that can be
+        # read back line by line, not a label that is announced once and lost.
+        self.key_status = wx.TextCtrl(
+            holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
+            size=(-1, 90))
+        set_accessible_name(self.key_status, "Key test results")
+        self.key_status.SetValue(
+            "Keys have not been tested. Press \"Test these keys now\" to check them "
+            "before starting a run.")
+        box.Add(self.key_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         return box
+
+    def _entered_key(self, provider: str) -> str | None:
+        """The key to test: what is typed now, or None to use what is stored."""
+        field = self.key_fields[provider]
+        value = field.GetValue().strip()
+        if not field.IsEditable():          # environment variable owns it
+            return None
+        if not value or set(value) == {"*"}:  # untouched placeholder
+            return None
+        return value
+
+    def _on_test_keys(self, _evt) -> None:
+        """Check every configured key, off the UI thread."""
+        from podharvest import cloud as cloud_mod
+
+        providers = [p for p in cloud_mod.ALL_PROVIDERS
+                     if self._entered_key(p) or keystore_load(self.app, p)]
+        if not providers:
+            self.key_status.SetValue(
+                "No keys to test. Enter at least one key above first.")
+            self.key_status.SetInsertionPoint(0)
+            return
+
+        self.test_keys_btn.Disable()
+        self.key_status.SetValue("Testing...")
+        pending = {p: self._entered_key(p) for p in providers}
+
+        def work():
+            lines = []
+            for provider, typed in pending.items():
+                ok, message = cloud_mod.verify_key(self.app, provider, typed)
+                lines.append(("OK: " if ok else "FAILED: ") + message)
+            wx.CallAfter(self._show_key_results, lines)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_key_results(self, lines: list[str]) -> None:
+        self.test_keys_btn.Enable()
+        failed = sum(1 for line in lines if line.startswith("FAILED"))
+        header = ("All keys are working." if not failed else
+                  f"{failed} of {len(lines)} keys did not work.")
+        self.key_status.SetValue(header + "\n\n" + "\n".join(lines))
+        self.key_status.SetInsertionPoint(0)
+        # Move focus to the result so it is read out rather than sitting unnoticed
+        # on a button that now says nothing new.
+        self.key_status.SetFocus()
 
     def _save_keys(self) -> None:
         """Persist any key field the user actually changed."""

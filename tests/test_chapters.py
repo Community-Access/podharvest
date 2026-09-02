@@ -72,3 +72,42 @@ class TestFormatChapters:
 
     def test_empty_list_produces_nothing(self):
         assert format_chapters([], 180) == ""
+
+
+class TestKeyOwnership:
+    """Anthropic, OpenAI and OpenRouter keys all begin "sk-", so pasting the
+    wrong line out of a list of keys is easy and the resulting 401 says
+    nothing useful."""
+
+    def test_recognises_each_issuer(self):
+        from podharvest.cloud import _key_belongs_to
+        assert _key_belongs_to("sk-ant-abc123") == "anthropic"
+        assert _key_belongs_to("sk-or-v1-abc123") == "openrouter"
+        assert _key_belongs_to("sk-proj-abc123") == "openai"
+        assert _key_belongs_to("sk-svcacct-abc123") == "openai"
+        assert _key_belongs_to("AIzaSyDabc123") == "gemini"
+        assert _key_belongs_to("sk-abc123") == "openai"
+
+    def test_longer_prefixes_win(self):
+        # "sk-ant-" must not be read as a bare OpenAI "sk-".
+        from podharvest.cloud import _key_belongs_to
+        assert _key_belongs_to("sk-ant-anything") != "openai"
+
+    def test_unknown_shape_is_not_guessed(self):
+        from podharvest.cloud import _key_belongs_to
+        assert _key_belongs_to("3bffe8ff78f2.H4PgQZ") is None
+        assert _key_belongs_to("") is None
+
+    def test_article_agrees_with_the_name(self):
+        from podharvest.cloud import _article
+        assert _article("OpenAI") == "an OpenAI"
+        assert _article("Anthropic") == "an Anthropic"
+        assert _article("Google Gemini") == "a Google Gemini"
+
+    def test_wrong_provider_is_reported_without_a_network_call(self, tmp_path):
+        # An obviously-wrong key must be caught by shape, before any request.
+        from podharvest import appspace
+        from podharvest.cloud import verify_key
+        ok, message = verify_key(appspace.resolve(), "openai", "sk-ant-not-a-real-key")
+        assert ok is False
+        assert "Anthropic" in message

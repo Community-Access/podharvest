@@ -178,6 +178,101 @@ def cloud_is_available(app) -> bool:
     return any(load_key(app, name) for name in ALL_PROVIDERS)
 
 
+# -- checking a key works ----------------------------------------------------
+
+#: A cheap authenticated GET per provider, used only to answer "does this key
+#: work". Each one lists models, which costs nothing and needs no credit, so
+#: checking a key never appears on anyone's bill.
+_VERIFY_ENDPOINTS = {
+    "openai": ("https://api.openai.com/v1/models", "bearer"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/models", "goog"),
+    "openrouter": ("https://openrouter.ai/api/v1/models", "bearer"),
+    "ollama-cloud": ("https://ollama.com/v1/models", "bearer"),
+}
+
+
+#: Key prefixes that identify their issuer. Anthropic, OpenAI and OpenRouter
+#: keys all begin "sk-", so a list of keys is genuinely easy to pick the wrong
+#: line out of - the longest prefixes are checked first so "sk-ant-" is not
+#: mistaken for a plain OpenAI "sk-".
+_KEY_PREFIXES = (
+    ("sk-ant-", "anthropic"),
+    ("sk-or-", "openrouter"),
+    ("sk-proj-", "openai"),
+    ("sk-svcacct-", "openai"),
+    ("AIza", "gemini"),
+    ("sk-", "openai"),
+)
+
+
+def _article(name: str) -> str:
+    """"an OpenAI" but "a Google Gemini" - these strings get read aloud."""
+    return f"an {name}" if name[:1].upper() in "AEIOU" else f"a {name}"
+
+
+def _key_belongs_to(key: str) -> str | None:
+    """Guess which provider issued `key` from its prefix, or None."""
+    for prefix, owner in _KEY_PREFIXES:
+        if key.startswith(prefix):
+            return owner
+    return None
+
+
+def verify_key(app, provider: str, key: str | None = None) -> tuple[bool, str]:
+    """Check that `key` actually works. Returns (ok, message for a human).
+
+    `key` defaults to whatever is configured. The message is written to be read
+    aloud, so it says what to do rather than quoting an HTTP status.
+    """
+    import urllib.error
+    import urllib.request
+
+    entry = _VERIFY_ENDPOINTS.get(provider)
+    label = PROVIDERS[provider].label if provider in PROVIDERS else provider
+    if entry is None:
+        return False, f"{label}: no way to check this provider."
+
+    key = (key if key is not None else load_key(app, provider)).strip()
+    if not key:
+        return False, f"{label}: no key set."
+
+    mistaken = _key_belongs_to(key)
+    if mistaken and mistaken != provider:
+        other = (PROVIDERS[mistaken].label if mistaken in PROVIDERS
+                 else "Anthropic" if mistaken == "anthropic" else mistaken)
+        return False, (f"{label}: that looks like {_article(other)} key, not "
+                       f"{_article(label)} one. Several providers issue keys beginning "
+                       f"\"sk-\", so it is easy to paste the wrong one. Check you have "
+                       f"the key from {label}.")
+
+    url, scheme = entry
+    req = urllib.request.Request(url)
+    if scheme == "bearer":
+        req.add_header("Authorization", f"Bearer {key}")
+    else:
+        req.add_header("x-goog-api-key", key)
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        count = len(payload.get("data") or payload.get("models") or [])
+        extra = f", {count} models available" if count else ""
+        return True, f"{label}: working{extra}."
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return False, (f"{label}: the key was rejected. Check it was pasted in full "
+                           "with no missing characters, and that the account is active.")
+        if exc.code == 429:
+            return False, (f"{label}: the key is valid but the account is rate limited or "
+                           "out of credit.")
+        return False, f"{label}: the provider returned an error ({exc.code})."
+    except urllib.error.URLError as exc:
+        return False, (f"{label}: could not reach the provider. Check your internet "
+                       f"connection. ({exc.reason})")
+    except (TimeoutError, ValueError) as exc:
+        return False, f"{label}: the check did not complete ({exc})."
+
+
 # -- HTTP --------------------------------------------------------------------
 
 def _post(url: str, *, headers: dict, data: bytes = b"", timeout: float = 600.0,
