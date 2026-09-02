@@ -76,11 +76,22 @@ try {
         Write-Host "[podharvest] Compiling Inno Setup installer..." -ForegroundColor Cyan
         $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
         if (-not $iscc) {
-            $candidate = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-            if (Test-Path $candidate) { $iscc = Get-Item $candidate }
+            # winget installs Inno Setup per-user under LOCALAPPDATA by default,
+            # and version 7 exists alongside 6, so checking only the Program
+            # Files path for version 6 misses the common case. Newest first.
+            $candidates = @(
+                "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
+                "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+                "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+                "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+                "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            )
+            $hit = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($hit) { $iscc = Get-Item $hit }
         }
         if (-not $iscc) {
-            Write-Warning "ISCC.exe (Inno Setup) not found. Install it from https://jrsoftware.org/isinfo.php and re-run with -Inno."
+            Write-Warning "ISCC.exe (Inno Setup) not found. Install it from https://jrsoftware.org/isinfo.php or with 'winget install JRSoftware.InnoSetup', then re-run with -Inno."
         }
         else {
             & $iscc.Path "$root\installer\podharvest.iss" "/DMyAppVersion=$version"

@@ -5,7 +5,7 @@ transcripts, chapters, artwork) and renders it as Markdown, accessible HTML,
 plain text, JSON and CSV.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.0.0"
 
 #: How the name is written wherever a person will read or hear it. The camel
 #: case is deliberate and load-bearing: a screen reader given "podharvest" says
