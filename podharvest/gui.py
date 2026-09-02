@@ -613,9 +613,16 @@ class MainFrame(wx.Frame):
         self.chk_chapters = wx.CheckBox(
             right_holder, label="Write chapter &markers with start and end times")
         self.chk_chapters.SetToolTip(
-            "Adds a chapter list at the top of each summary, with the time each topic "
-            "starts and ends. Needs a model that produces timestamps, and adds a minute "
-            "or two per episode.")
+            "Works out where each topic starts and ends. Needs a model that produces "
+            "timestamps, and adds a minute or two per episode.")
+        self.chk_chapters.Bind(wx.EVT_CHECKBOX, self._on_toggle_chapters)
+        self.chk_chapters_audio = wx.CheckBox(
+            right_holder, label="Also add the chapters to the a&udio file")
+        self.chk_chapters_audio.SetValue(True)
+        self.chk_chapters_audio.SetToolTip(
+            "Writes the chapters into the audio file itself, so a podcast player shows "
+            "them as a list you can jump through. The audio is copied, not re-encoded, "
+            "so nothing is lost and the file barely changes size.")
         self.chk_paragraphs = wx.CheckBox(right_holder, label="Group into &paragraphs (merge same-speaker lines)")
 
         width_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -631,6 +638,7 @@ class MainFrame(wx.Frame):
         right_box.Add(wx.StaticText(right_holder, label="About this model:"), 0, wx.BOTTOM, 2)
         right_box.Add(self.model_info, 1, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(self.chk_chapters, 0, wx.BOTTOM, 4)
+        right_box.Add(self.chk_chapters_audio, 0, wx.LEFT | wx.BOTTOM, 18)
         right_box.Add(self.chk_timestamps, 0, wx.BOTTOM, 4)
         right_box.Add(ts_row, 0, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(self.chk_speakers, 0, wx.BOTTOM, 4)
@@ -646,7 +654,7 @@ class MainFrame(wx.Frame):
         self._transcript_controls = [
             self.model_choice, self.model_info, self.chk_timestamps, self.chk_speakers,
             self.timestamp_style_choice, self.speaker_style_choice, self.chk_paragraphs,
-            self.chk_chapters, self.line_width_ctrl,
+            self.chk_chapters, self.chk_chapters_audio, self.line_width_ctrl,
         ]
         self._on_toggle_transcribe(None)
         return box
@@ -692,12 +700,14 @@ class MainFrame(wx.Frame):
             {"bold": 0, "plain": 1, "inline": 2}.get(s.transcript_speaker_style, 0))
         self.chk_paragraphs.SetValue(s.transcript_paragraph_mode)
         self.chk_chapters.SetValue(s.write_chapters)
+        self.chk_chapters_audio.SetValue(s.chapters_into_audio)
         if s.model_filter in self._SOURCES:
             self.source_radio.SetSelection(self._SOURCES.index(s.model_filter))
         self.line_width_ctrl.SetValue(s.transcript_max_line_chars or 0)
         self._on_toggle_transcribe(None)
         self._on_toggle_timestamp_style(None)
         self._on_toggle_speaker_style(None)
+        self._on_toggle_chapters(None)
 
     def _save_settings(self) -> None:
         s = self.settings
@@ -712,6 +722,7 @@ class MainFrame(wx.Frame):
         s.transcript_speaker_style = ["bold", "plain", "inline"][self.speaker_style_choice.GetSelection()]
         s.transcript_paragraph_mode = self.chk_paragraphs.GetValue()
         s.write_chapters = self.chk_chapters.GetValue()
+        s.chapters_into_audio = self.chk_chapters_audio.GetValue()
         s.model_filter = self._SOURCES[self.source_radio.GetSelection()]
         s.transcript_max_line_chars = self.line_width_ctrl.GetValue() or None
         selection = self.model_choice.GetSelection()
@@ -786,10 +797,16 @@ class MainFrame(wx.Frame):
         self._set_enabled([self.source_radio],
                           on and bool(getattr(self, "_cloud_models", [])),
                           fallback=self.chk_transcribe)
-        # The two style pickers have their own conditions on top of this one,
-        # so re-apply them or they end up enabled while their parent is off.
+        # These have their own conditions on top of this one, so re-apply them
+        # or they end up enabled while their parent is off.
         self._on_toggle_timestamp_style(None)
         self._on_toggle_speaker_style(None)
+        self._on_toggle_chapters(None)
+
+    def _on_toggle_chapters(self, _evt) -> None:
+        self._set_enabled([self.chk_chapters_audio],
+                          self.chk_transcribe.GetValue() and self.chk_chapters.GetValue(),
+                          fallback=self.chk_chapters)
 
     def _on_toggle_timestamp_style(self, _evt) -> None:
         enabled = self.chk_transcribe.GetValue() and self.chk_timestamps.GetValue()

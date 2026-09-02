@@ -130,7 +130,7 @@ def _transcribe_episode(engine, ep, feed_dir: Path, *, format_opt: transcribe_mo
         if want_chapters and not has_times:
             LOG.info("%sskipping chapter markers for '%s': this model returns text "
                      "without timestamps.", where, ep.title)
-        write_enrichment(
+        _, chapters = write_enrichment(
             app, enrichment_model, md_path, result.text,
             full_episode=getattr(settings, "enrichment_full_episode", True),
             max_input_chars=getattr(settings, "enrichment_max_chars", 24000),
@@ -143,6 +143,13 @@ def _transcribe_episode(engine, ep, feed_dir: Path, *, format_opt: transcribe_mo
         )
         LOG.info("%ssummary done for '%s' (%s).", where, ep.title,
                  spoken_duration(time.monotonic() - s0))
+
+        # Put the chapters into the audio too, so a podcast player can jump
+        # between topics. Lossless - the audio stream is copied, not re-encoded.
+        if chapters and getattr(settings, "chapters_into_audio", True):
+            from podharvest.chapters import embed_chapters
+            embed_chapters(Path(audio.local_path), chapters, result.audio_seconds,
+                           title=ep.title)
     say("done", 100.0)
     return ep.title, result.audio_seconds, elapsed
 

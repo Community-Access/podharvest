@@ -92,7 +92,9 @@ Slower, but it means you can find that one episode where they talked about the t
 long episode. With it, they cover all of it and take a bit longer.
 
 **Write chapter markers.** Adds a contents list with times at the top of each summary, so you
-can skip straight to the part you wanted.
+can skip straight to the part you wanted. Keep **Also add the chapters to the audio file**
+ticked and they go into the episode itself, so your podcast player can jump between topics.
+The audio is not re-encoded, so nothing is lost.
 
 **Save a log file.** Keeps a record of each run, and lets you choose where it goes.
 

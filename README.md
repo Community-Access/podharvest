@@ -57,7 +57,7 @@ No. Everything works on your own machine, for free, forever.
 There is an optional extra: if you already have an account with OpenAI, Google Gemini,
 OpenRouter or Ollama Cloud, you can paste in your API key and use their models instead. That
 can be faster on an older computer, and Google's models are rather good at working out who is
-speaking. You pay them directly for what you use, usually a few pounds for a whole podcast
+speaking. You pay them directly for what you use, usually a few dollars for a whole podcast
 back catalogue.
 
 You do not need this. The free model that runs on your own computer was the most accurate of
@@ -71,12 +71,12 @@ your computer.
 
 ### Just the audio, no transcripts
 
-Untick **Transcribe downloaded audio**. podharvest becomes a straightforward podcast
+Uncheck **Transcribe downloaded audio**. podharvest becomes a straightforward podcast
 downloader that also saves the show notes properly.
 
 ### Only the last few episodes
 
-Set **Limit episodes** to the number you want. Leave it at 0 for the lot.
+Set **Limit episodes** to the number you want. Leave it at 0 for the entire series.
 
 ### Find out who said what
 
@@ -86,7 +86,7 @@ works out people's actual names from the recording.
 
 ### Jump to the interesting part
 
-Tick **Write chapter markers with start and end times**. Each summary then opens with a
+Check **Write chapter markers with start and end times**. Each summary then opens with a
 contents list:
 
 ```text
@@ -94,6 +94,15 @@ contents list:
 00:00:34 - 00:01:09   Introducing this week's guest
 00:01:09 - 00:15:30   Cooking without sight
 ```
+
+Leave **Also add the chapters to the audio file** ticked and those chapters go into the
+episode itself. Your podcast player then shows them as a list you can skip through with its
+own next-chapter and previous-chapter controls, so you can move around an hour-long episode
+by topic instead of dragging a progress bar. Apple Podcasts, Overcast, Pocket Casts and VLC
+all read them.
+
+The audio is copied rather than re-encoded, so nothing is lost and the file grows by about
+eighty bytes.
 
 ### Change where things are saved
 

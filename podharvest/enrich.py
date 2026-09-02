@@ -367,17 +367,20 @@ def write_enrichment(app: AppSpace, choice: ModelChoice, transcript_path: Path,
                      transcript_text: str, *, full_episode: bool = True,
                      max_input_chars: int = 24000, segments=None,
                      write_chapters: bool = False, total_seconds: float = 0.0,
-                     on_step: Callable[[int, int], None] | None = None) -> Path | None:
+                     on_step: Callable[[int, int], None] | None = None
+                     ) -> tuple[Path | None, list[tuple[int, str]]]:
     """Summarise `transcript_text` and write it beside `transcript_path` as
-    `<name>.summary.md`. Returns the written path, or None if it was skipped.
+    `<name>.summary.md`.
 
-    With `write_chapters` and timestamped `segments`, a chapter list with start
-    and end times is written above the summary.
+    Returns (written path or None, chapters). The chapters come back so the
+    caller can also write them into the audio file, where a podcast player can
+    use them.
     """
     summary = enrich_transcript(app, choice, transcript_text, max_input_chars=max_input_chars,
                                 full_episode=full_episode, on_step=on_step)
 
     chapter_block = ""
+    chapters: list[tuple[int, str]] = []
     if write_chapters and segments:
         chapters = make_chapters(app, choice, segments, total_seconds or 0.0,
                                  max_input_chars=max_input_chars)
@@ -388,7 +391,7 @@ def write_enrichment(app: AppSpace, choice: ModelChoice, transcript_path: Path,
             LOG.info("No chapter markers could be worked out for this episode.")
 
     if not summary and not chapter_block:
-        return None
+        return None, chapters
 
     body = f"# Summary ({choice.model})\n\n"
     if chapter_block:
@@ -398,4 +401,4 @@ def write_enrichment(app: AppSpace, choice: ModelChoice, transcript_path: Path,
     out_path = transcript_path.with_suffix("").with_suffix(".summary.md")
     out_path.write_text(body, encoding="utf-8", newline="\n")
     LOG.debug("Wrote summary: %s", out_path)
-    return out_path
+    return out_path, chapters

@@ -74,6 +74,9 @@ class Settings:
                                             # the whole episode
     write_chapters: bool = False            # chapter markers with start/end times,
                                             # written above the summary
+    chapters_into_audio: bool = True        # also write them into the audio file, so a
+                                            # podcast player can jump between topics.
+                                            # Lossless: the audio is copied, not re-encoded.
     enrichment_provider: str = ""           # "" -> the local model; otherwise a
                                             # cloud provider name
 

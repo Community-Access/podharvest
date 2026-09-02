@@ -261,6 +261,23 @@ The times come from the transcript's own segment timestamps, not from the model'
 anything outside the episode's length is discarded. Chapters need a model that returns
 timestamps, so the OpenAI GPT-4o transcribe models cannot produce them.
 
+## Chapter markers
+
+`write_chapters` works out where each topic starts and ends, from the transcript's own segment
+timestamps rather than from the model's guesswork; any time falling outside the episode is
+discarded. The result is written above the summary in `<episode>.summary.md`.
+
+`chapters_into_audio` (default on) additionally writes them into the audio file as chapter
+metadata, which podcast players expose as a navigable list. Supported for `.mp3`, `.m4a`,
+`.m4b`, `.mp4`, `.ogg` and `.opus`; other containers are skipped rather than re-muxed.
+
+The audio stream is copied with `-codec copy`, so the rewrite is lossless and adds roughly
+eighty bytes. It goes to a scratch file that only replaces the original once ffmpeg has
+succeeded, so an interrupted write cannot truncate an episode.
+
+Chapters need a model that returns per-segment timestamps. The OpenAI GPT-4o transcribe models
+return plain text only and are skipped with a log line saying so.
+
 ## Settings reference
 
 `podharvest settings --show` prints the full, self-describing settings file. Highlights:
