@@ -18,7 +18,8 @@
 .PARAMETER Inno
     Also compile installer/podharvest.iss into a conventional Windows
     installer (podharvest-<version>-setup.exe) using Inno Setup's ISCC.exe.
-    Requires Inno Setup 6 (https://jrsoftware.org/isinfo.php) to be installed.
+    Requires Inno Setup 6 or 7 (https://jrsoftware.org/isinfo.php), found on
+    PATH or in the usual per-user and Program Files locations.
 
 .EXAMPLE
     ./scripts/build_installer.ps1
@@ -74,7 +75,10 @@ try {
     if ($Inno) {
         Write-Host ""
         Write-Host "[podharvest] Compiling Inno Setup installer..." -ForegroundColor Cyan
-        $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+        # Keep this a plain path string. Get-Command yields a CommandInfo with
+        # a .Path, Get-Item yields a FileInfo with a .FullName, and mixing the
+        # two means "& $iscc.Path" silently resolves to null for one of them.
+        $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Path
         if (-not $iscc) {
             # winget installs Inno Setup per-user under LOCALAPPDATA by default,
             # and version 7 exists alongside 6, so checking only the Program
@@ -87,14 +91,14 @@ try {
                 "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
                 "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
             )
-            $hit = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if ($hit) { $iscc = Get-Item $hit }
+            $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
         }
         if (-not $iscc) {
             Write-Warning "ISCC.exe (Inno Setup) not found. Install it from https://jrsoftware.org/isinfo.php or with 'winget install JRSoftware.InnoSetup', then re-run with -Inno."
         }
         else {
-            & $iscc.Path "$root\installer\podharvest.iss" "/DMyAppVersion=$version"
+            Write-Host "  Using  : $iscc"
+            & $iscc "$root\installer\podharvest.iss" "/DMyAppVersion=$version"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
             Write-Host "  Setup  : $root\dist\installer\podharvest-$version-setup.exe" -ForegroundColor Green
         }
