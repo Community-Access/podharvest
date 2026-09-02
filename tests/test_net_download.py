@@ -113,17 +113,25 @@ def test_interrupted_transfer_resumes_without_duplicating_bytes(client):
 
 
 def test_retry_requests_the_remaining_range_not_the_whole_file(client):
-    server = FlakyServer(fail_times=1)
+    # `truncate=True` closes the connection gracefully rather than resetting
+    # it, so the half-body is guaranteed to reach the client before the
+    # failure. A reset can discard the receive buffer - on Windows it usually
+    # does - leaving zero bytes committed, in which case restarting from the
+    # beginning is correct and there is nothing to assert about a Range.
+    server = FlakyServer(fail_times=1, truncate=True)
     try:
-        client.stream(server.url, io.BytesIO())
+        sink = io.BytesIO()
+        client.stream(server.url, sink)
     finally:
         server.close()
 
+    assert sink.getvalue() == BODY
     assert len(server.requests) >= 2
-    # The second attempt must ask for a non-zero offset, otherwise it is
-    # re-downloading bytes it already has.
-    assert "bytes=" in server.requests[1].lower()
-    assert "bytes=0-" not in server.requests[1].lower()
+    # The retry must ask for only the bytes it does not already have.
+    resume = server.requests[1].lower()
+    assert "bytes=" in resume
+    offset = int(resume.split("bytes=")[1].split("-")[0])
+    assert offset == len(BODY) // 2
 
 
 def test_truncated_response_raises_instead_of_returning_a_short_file(client):
