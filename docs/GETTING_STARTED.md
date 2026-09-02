@@ -98,6 +98,10 @@ The audio is not re-encoded, so nothing is lost.
 
 **Save a log file.** Keeps a record of each run, and lets you choose where it goes.
 
+There is no limit on how long an episode can be. Three-hour episodes are fine. If you use a
+cloud provider, podharvest deals with their upload limits on your behalf without asking you
+anything.
+
 ## If you get stuck
 
 Press Ctrl+L to jump to the activity log. It explains what is happening in ordinary words,

@@ -67,6 +67,22 @@ because you need it.
 If you never add a key, podharvest never contacts any of them, and your audio never leaves
 your computer.
 
+### What about really long episodes?
+
+They just work. You do not have to do anything.
+
+Transcribing on your own computer has no length limit at all. A three-hour episode is fine.
+
+Cloud providers do have a size limit on what you can send them in one go, usually around
+25 MB, and a typical hour-long episode is twice that. podharvest handles it for you: before
+uploading it makes a compact copy of the audio tuned for speech, which brings an hour down to
+about 7 MB, so nearly every episode fits in one piece. If something is still too big, it is
+split into parts at natural pauses in the speech, never in the middle of a word, and the
+pieces are joined back into one transcript with the times lined up correctly.
+
+Your original audio file is never touched by any of this. The compact copy is made for the
+upload and thrown away afterwards.
+
 ## Common things people want to do
 
 ### Just the audio, no transcripts
