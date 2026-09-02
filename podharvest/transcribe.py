@@ -17,6 +17,7 @@ a clear note is logged instead of failing the whole transcription.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ from typing import Protocol
 from podharvest.appspace import AppSpace
 from podharvest.hardware import ModelChoice
 from podharvest.progress import ProgressReporter
-from podharvest.util import LOG, HarvestError, human_duration
+from podharvest.util import LOG, HarvestError, spoken_duration
 
 
 @dataclass
@@ -61,6 +62,26 @@ class Engine(Protocol):
                    on_progress: Callable[[float], None] | None = None) -> TranscriptResult: ...
 
 
+def _pcm16_to_float32(raw: bytes):
+    """Turn raw little-endian 16-bit PCM into normalised float samples.
+
+    An hour of 16 kHz audio is ~57 million samples, and building a Python list
+    of that many floats costs both tens of seconds and well over a gigabyte of
+    memory. NumPy does the same work in one vectorised pass, so it is used
+    whenever it is importable (every ASR engine here already pulls it in), with
+    the pure-Python path kept as a fallback.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        import array
+        samples = array.array("h")
+        samples.frombytes(raw)
+        return [s / 32768.0 for s in samples]
+    usable = len(raw) - (len(raw) % 2)
+    return np.frombuffer(raw[:usable], dtype="<i2").astype("float32") / 32768.0
+
+
 def _probe_duration_seconds(audio_path: Path) -> float:
     """Best-effort audio duration without extra dependencies (falls back to 0)."""
     try:
@@ -72,8 +93,10 @@ def _probe_duration_seconds(audio_path: Path) -> float:
     try:
         import subprocess
 
-        from podharvest.hardware import find_ffmpeg
-        ffprobe = find_ffmpeg().replace("ffmpeg", "ffprobe")
+        from podharvest.hardware import find_ffprobe
+        ffprobe = find_ffprobe()
+        if not ffprobe:
+            return 0.0
         out = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
@@ -104,13 +127,13 @@ class FasterWhisperEngine:
                 "faster-whisper is not installed. Run 'podharvest hardware' once "
                 "(or let a fetch/transcribe job run) to install it automatically."
             ) from exc
-        LOG.info("Loading faster-whisper model '%s' (%s/%s)...", self.choice.model, self.device, self.compute_type)
+        LOG.info("Loading the speech model '%s' (%s, %s)...", self.choice.model, self.device, self.compute_type)
         t0 = time.monotonic()
         self._model = WhisperModel(
             self.choice.model, device=self.device, compute_type=self.compute_type,
             download_root=str(self.app.whisper_models_dir),
         )
-        LOG.info("Model loaded in %.1fs.", time.monotonic() - t0)
+        LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model
 
     def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
@@ -164,10 +187,10 @@ class ParakeetEngine:
                 "install it manually with 'pip install nemo_toolkit[asr]' if you want to use "
                 f"{self.choice.engine}."
             ) from exc
-        LOG.info("Loading %s '%s' from %s...", self.choice.engine, self.choice.model, self.choice.source)
+        LOG.info("Loading the speech model '%s' from %s...", self.choice.model, self.choice.source)
         t0 = time.monotonic()
         self._model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.choice.source)
-        LOG.info("Model loaded in %.1fs.", time.monotonic() - t0)
+        LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model
 
     def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
@@ -208,9 +231,17 @@ class SherpaOnnxParakeetEngine:
     overlap trimmed from each boundary) and recognized one window at a time.
     """
 
-    CHUNK_SECONDS = 25.0
-    OVERLAP_SECONDS = 1.0
+    # Measured on bench/ep1-3 (15 minutes) against both a human reference and a
+    # whole-file no-boundary decode. 30s/no-overlap had the lowest error against
+    # the human transcript (2.02%) and was the fastest of the low-error settings.
+    # Overlap is 0 because a window that re-reads audio costs time and, even with
+    # the duplicate tokens trimmed, scored worse than not overlapping at all.
+    CHUNK_SECONDS = 30.0
+    OVERLAP_SECONDS = 0.0
     SAMPLE_RATE = 16000
+    #: A window shorter than this yields no feature frames and the model errors
+    #: out on the empty input. One frame is 25 ms; this leaves generous margin.
+    MIN_WINDOW_SECONDS = 0.2
 
     def __init__(self, app: AppSpace, choice: ModelChoice) -> None:
         self.app = app
@@ -248,7 +279,7 @@ class SherpaOnnxParakeetEngine:
             )
 
         import os
-        LOG.info("Loading sherpa-onnx Parakeet '%s'...", self.choice.model)
+        LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
         self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
             encoder=str(model_dir / "encoder.onnx"),
@@ -261,12 +292,11 @@ class SherpaOnnxParakeetEngine:
             decoding_method="greedy_search",
             model_type="nemo_transducer",
         )
-        LOG.info("Model loaded in %.1fs.", time.monotonic() - t0)
+        LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._recognizer
 
-    def _read_pcm16k(self, audio_path: Path) -> list[float]:
+    def _read_pcm16k(self, audio_path: Path):
         """Decode any audio file to 16kHz mono float32 PCM via ffmpeg."""
-        import array
         import subprocess
 
         from podharvest.hardware import find_ffmpeg
@@ -278,9 +308,7 @@ class SherpaOnnxParakeetEngine:
              "-ar", str(self.SAMPLE_RATE), "-"],
             capture_output=True, check=True,
         )
-        samples = array.array("h")
-        samples.frombytes(proc.stdout)
-        return [s / 32768.0 for s in samples]
+        return _pcm16_to_float32(proc.stdout)
 
     def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
                   on_progress: Callable[[float], None] | None = None) -> TranscriptResult:
@@ -290,21 +318,44 @@ class SherpaOnnxParakeetEngine:
         chunk_n = int(self.CHUNK_SECONDS * self.SAMPLE_RATE)
         overlap_n = int(self.OVERLAP_SECONDS * self.SAMPLE_RATE)
 
+        stride_n = max(1, chunk_n - overlap_n)
+        min_n = int(self.MIN_WINDOW_SECONDS * self.SAMPLE_RATE)
+
         segments: list[TranscriptSegment] = []
         t0 = time.monotonic()
         pos = 0
+        first = True
         while pos < len(samples):
             window = samples[pos:pos + chunk_n]
-            if not window:
+            # Anything shorter than a feature frame produces no frames at all,
+            # and the model's convolution stack rejects an empty input outright.
+            # A trailing sliver is silence-length audio; dropping it loses
+            # nothing and is the difference between finishing and crashing.
+            if len(window) < min_n:
                 break
             stream = recognizer.create_stream()
             stream.accept_waveform(self.SAMPLE_RATE, window)
             recognizer.decode_stream(stream)
-            text = stream.result.text.strip()
+
+            # Each window re-reads the last `overlap` seconds of the previous
+            # one so the model has context across the join. Those seconds were
+            # already transcribed, so their tokens are dropped here - keeping
+            # them duplicates a word or two at every single boundary.
+            skip_before = 0.0 if first else self.OVERLAP_SECONDS
+            tokens = list(getattr(stream.result, "tokens", None) or [])
+            stamps = list(getattr(stream.result, "timestamps", None) or [])
+            if skip_before and tokens and len(stamps) == len(tokens):
+                text = "".join(tok for tok, ts in zip(tokens, stamps)
+                               if ts >= skip_before).strip()
+            else:
+                text = stream.result.text.strip()
+
             if text:
-                segments.append(TranscriptSegment(start=pos / self.SAMPLE_RATE,
-                                                  end=(pos + len(window)) / self.SAMPLE_RATE, text=text))
-            pos += chunk_n - overlap_n
+                segments.append(TranscriptSegment(
+                    start=pos / self.SAMPLE_RATE + skip_before,
+                    end=(pos + len(window)) / self.SAMPLE_RATE, text=text))
+            first = False
+            pos += stride_n
             if on_progress and duration:
                 on_progress(min(100.0, pos / len(samples) * 100))
         elapsed = time.monotonic() - t0
@@ -359,10 +410,10 @@ class VoskEngine:
                 model_dir = nested[0]
 
         vosk.SetLogLevel(-1)     # Vosk logs very noisily to stderr by default
-        LOG.info("Loading Vosk model '%s'...", self.choice.model)
+        LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
         self._model = vosk.Model(str(model_dir))
-        LOG.info("Model loaded in %.1fs.", time.monotonic() - t0)
+        LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model
 
     def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
@@ -381,11 +432,11 @@ class VoskEngine:
         t0 = time.monotonic()
         for pos in range(0, len(samples), self._READ_SAMPLES):
             window = samples[pos:pos + self._READ_SAMPLES]
-            if not window:
+            if len(window) == 0:
                 break
             if recognizer.AcceptWaveform(_to_pcm16_bytes(window)):
                 _append_vosk_result(segments, recognizer.Result(), include_word_timestamps)
-            if on_progress and samples:
+            if on_progress and len(samples):
                 on_progress(min(100.0, (pos + len(window)) / len(samples) * 100))
         _append_vosk_result(segments, recognizer.FinalResult(), include_word_timestamps)
         elapsed = time.monotonic() - t0
@@ -417,10 +468,14 @@ def _append_vosk_result(segments: list, raw: str, include_words: bool) -> None:
 
 def _to_pcm16_bytes(samples) -> bytes:
     """Float PCM in [-1, 1] back to the signed 16-bit bytes Vosk expects."""
-    import array
-
-    clipped = array.array("h", (int(max(-1.0, min(1.0, s)) * 32767) for s in samples))
-    return clipped.tobytes()
+    try:
+        import numpy as np
+    except ImportError:
+        import array
+        clipped = array.array("h", (int(max(-1.0, min(1.0, s)) * 32767) for s in samples))
+        return clipped.tobytes()
+    arr = np.asarray(samples, dtype="float32")
+    return (np.clip(arr, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
 class MoonshineEngine:
@@ -466,11 +521,11 @@ class MoonshineEngine:
         if name is None:
             raise HarvestError(f"Unknown Moonshine model {self.choice.model!r}.")
 
-        LOG.info("Loading Moonshine model '%s'...", self.choice.model)
+        LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
         self._model = MoonshineOnnxModel(model_name=name)
         self._tokenizer = load_tokenizer()
-        LOG.info("Model loaded in %.1fs.", time.monotonic() - t0)
+        LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model, self._tokenizer
 
     def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
@@ -519,7 +574,45 @@ class MoonshineEngine:
         )
 
 
+# One engine is kept alive between runs so that starting a second harvest does
+# not pay the model load again. Only the most recent configuration is held: ASR
+# models run to several gigabytes, and keeping every engine anyone selected
+# during a session would accumulate all of them.
+_ENGINE_LOCK = threading.Lock()
+_ENGINE_CACHE: dict[tuple, Engine] = {}
+
+
 def build_engine(app: AppSpace, choice: ModelChoice, *, device: str = "cpu",
+                 compute_type: str = "int8", reuse: bool = True) -> Engine:
+    """Build the engine for `choice`, reusing the last one when it matches.
+
+    `reuse=False` forces a fresh engine, which the benchmark needs: it times
+    model load as part of the comparison and a warm cache would flatter
+    whichever engine happened to run second.
+    """
+    key = (choice.engine, choice.model, device, compute_type)
+    if reuse:
+        with _ENGINE_LOCK:
+            cached = _ENGINE_CACHE.get(key)
+            if cached is not None:
+                LOG.info("Reusing the speech model already in memory.")
+                return cached
+
+    engine = _make_engine(app, choice, device=device, compute_type=compute_type)
+    if reuse:
+        with _ENGINE_LOCK:
+            _ENGINE_CACHE.clear()      # hold one engine, not one per model tried
+            _ENGINE_CACHE[key] = engine
+    return engine
+
+
+def release_engines() -> None:
+    """Drop the cached engine and its model from memory."""
+    with _ENGINE_LOCK:
+        _ENGINE_CACHE.clear()
+
+
+def _make_engine(app: AppSpace, choice: ModelChoice, *, device: str = "cpu",
                  compute_type: str = "int8") -> Engine:
     if choice.engine == "faster-whisper":
         return FasterWhisperEngine(app, choice, device=device, compute_type=compute_type)
@@ -652,9 +745,8 @@ def _diarize_sherpa_onnx(app: AppSpace, audio_path: Path,
     return [(seg.start, seg.end, f"speaker_{seg.speaker:02d}") for seg in result]
 
 
-def _read_pcm16k_generic(audio_path: Path, sample_rate: int) -> list:
+def _read_pcm16k_generic(audio_path: Path, sample_rate: int):
     """Decode any audio file to mono float32 PCM at `sample_rate` via ffmpeg."""
-    import array
     import subprocess
 
     from podharvest.hardware import find_ffmpeg
@@ -666,9 +758,7 @@ def _read_pcm16k_generic(audio_path: Path, sample_rate: int) -> list:
          "-ar", str(sample_rate), "-"],
         capture_output=True, check=True,
     )
-    samples = array.array("h")
-    samples.frombytes(proc.stdout)
-    return [s / 32768.0 for s in samples]
+    return _pcm16_to_float32(proc.stdout)
 
 
 def _diarize_nemo_msdd(audio_path: Path) -> list[tuple[float, float, str]] | None:
@@ -841,10 +931,14 @@ def _wrap(text: str, width: int | None) -> str:
 
 def format_markdown(result: TranscriptResult, opt: FormatOptions | None = None, **legacy) -> str:
     opt = opt or FormatOptions(**_legacy_kwargs(legacy))
-    lines = [f"# Transcript ({result.engine}: {result.model})", ""]
-    lines.append(f"*{human_duration(int(result.audio_seconds))} of audio, transcribed in "
-                f"{result.transcribe_seconds:.1f}s ({result.speed_x_realtime}x real-time).*")
-    lines.append("")
+    # Joined with a blank line below, so no empty entries here - they turn into
+    # three blank lines between every paragraph.
+    lines = ["# Transcript"]
+    # Deliberately not "59:19" - a clock-shaped number at the top of a transcript
+    # reads as a timestamp, which is confusing when timestamps are turned off.
+    lines.append(f"*This recording is {spoken_duration(result.audio_seconds)} long. "
+                 f"The transcript took {spoken_duration(result.transcribe_seconds)} to write, "
+                 f"using {result.model}.*")
     if opt.paragraph_mode:
         for group in _group_paragraphs(result.segments):
             prefix = _timestamp_prefix(group[0].start, opt, bold=True)

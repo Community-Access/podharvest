@@ -88,7 +88,10 @@ def run_benchmark(app: AppSpace, audio_paths: list[Path], choices: list[ModelCho
             device = hw.accelerator if hw.accelerator != "metal" else "cpu"
             compute_type = "float16" if hw.accelerator in {"cuda", "rocm"} else "int8"
             t0 = time.monotonic()
-            engine = build_engine(app, choice, device=device, compute_type=compute_type)
+            # reuse=False: the benchmark times model load, so a warm cache
+            # would flatter whichever engine ran second.
+            engine = build_engine(app, choice, device=device, compute_type=compute_type,
+                                  reuse=False)
             if hasattr(engine, "_load"):
                 engine._load()
             load_s = time.monotonic() - t0

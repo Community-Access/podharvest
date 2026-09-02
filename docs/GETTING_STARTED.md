@@ -1,101 +1,111 @@
-# Getting started with podharvest
+# Your first podcast
 
-This is the fastest path from "just downloaded this" to a fully archived, transcribed podcast feed. For the full feature reference see [README.md](../README.md); for the model catalogue see [MODELS.md](MODELS.md); for accessibility details see [ACCESSIBILITY.md](ACCESSIBILITY.md).
+This walks you through installing podharvest and archiving your first show. It assumes no
+technical knowledge at all. If anything here reads as jargon, that is a bug in this document,
+and you are welcome to say so.
 
-## 1. Install
+Total time: about ten minutes, most of which is waiting.
 
-**Windows, no Python experience needed:**
+## Step 1: Install it
 
-1. Download and unzip the portable release (`podharvest-<version>-win64-portable.zip`), or run the installer (`podharvest-setup.exe`) if you were given one.
-2. Double-click `podharvest.exe` (or, if you have the source instead of a build, run `run.bat`).
-3. That's it — no separate Python install, no `pip install` required for basic use.
+**The easy way, on Windows**
 
-**From source (developers):**
+1. Download the file ending in `win64-portable.zip`.
+2. Right-click it and choose **Extract All**.
+3. Open the folder that appears and double-click **podharvest.exe**.
 
-```powershell
-git clone <this repo>
-cd pod
-python -m pip install -r requirements.txt   # just wxPython, for the GUI
-python main.py gui
-```
+There is no installer to sit through and nothing to configure. The whole program lives in
+that one folder. To uninstall it later, delete the folder.
 
-Requires Python 3.10+.
+**If you were given an installer instead**
 
-## 2. Check your hardware
+Double-click `podharvest-setup.exe` and follow the prompts. It behaves like any other Windows
+program after that.
 
-Before transcribing anything, see what your machine can do:
+## Step 2: Find your podcast's address
 
-```powershell
-python main.py hardware
-```
+You need the address of the show. Either of these works:
 
-This prints your CPU/RAM/GPU and the ASR model podharvest recommends for you. Nothing is downloaded yet — models are fetched the first time you actually use them.
+- The show's ordinary web page, for example `https://acbda.org/podcast`
+- The feed address, which often ends in `/feed` or `/rss`
 
-## 3. Harvest your first feed
+Use the web page if you have it. podharvest will find the feed on its own.
 
-Using the GUI: run `python main.py gui`, paste a feed URL (e.g. `https://acbda.org/feed`) into the **Feed URL** box, and click **Start**.
+## Step 3: Run it
 
-Using the CLI:
+1. Paste the address into the **Feed URL** box at the top.
+2. Press **Start**.
 
-```powershell
-python main.py fetch https://acbda.org/feed -o D:\Podcasts
-```
+podharvest reads the show's episode list, saves the show notes for every episode, and
+downloads the audio. For a podcast with a long back catalogue this can take a while, because
+it is downloading real audio files. The progress bar and the **Episodes** list keep you
+informed throughout.
 
-When it finishes, look in `D:\Podcasts\<feed-name>\`:
+When it finishes, a message says so and the **Cancel** button becomes **Open output folder**.
+Press it to see what you got.
 
-```text
-markdown/    html/    text/    json/     <- one file per episode, per format
-audio/       video/   images/  documents/  other/   <- downloaded enclosures, sorted by kind
-transcripts/                                          <- populated once you transcribe (see below)
-index.md    feed.json    downloads.json
-```
+## Step 4: Add transcripts
 
-## 4. Transcribe some audio
+Transcripts are the good bit, so they get their own step.
 
-```powershell
-python main.py fetch https://acbda.org/feed --limit 3 --transcribe
-```
+1. Tick **Transcribe downloaded audio on-device**.
+2. Look at the **About this model** box. It tells you which model will be used, how accurate
+   it is, and roughly how long this podcast will take.
+3. Press **Start**.
 
-- `--limit 3` processes only the 3 most recent episodes (omit it, or use `--limit all`, for everything).
-- The first time you transcribe, podharvest installs the ASR engine's Python package automatically (e.g. `faster-whisper`) into its own isolated folder — this can take a minute.
-- Control the model with `--engine`/`--model`, e.g. `--engine faster-whisper --model small.en`. See `python main.py hardware` for what's recommended, and [MODELS.md](MODELS.md) for the full catalogue.
-- Control transcript layout with `--timestamps`/`--no-timestamps`, `--speakers`/`--no-speakers`, `--timestamp-style`, `--speaker-style`, `--paragraphs`, `--line-width`.
+The very first time, podharvest downloads the transcription model. That is a one-off download
+of a couple of gigabytes, and it never happens again.
 
-## 5. Compare models before committing to one
+After that, each episode takes a few minutes. An hour of audio is about three and a half
+minutes of work on an ordinary laptop. You do not have to watch. Go and do something else.
 
-Not sure which model is right for your hardware? Benchmark a few directly:
+## What you end up with
 
-```powershell
-python main.py benchmark my-clip.mp3 --model faster-whisper:tiny.en --model faster-whisper:small.en
-```
+Inside your output folder, one folder per podcast, containing:
 
-Add `--reference-dir path\to\reference\transcripts` (one `<clip-name>.txt` per audio file) to also get Word Error Rate (WER) and accuracy percentages, not just timing - see the "Validating accuracy" section of [README.md](../README.md#validating-accuracy-and-comparing-models).
-
-## 6. Save your preferences
-
-Whatever you set in the GUI, or pass on the CLI, is remembered:
-
-```powershell
-python main.py settings --show
-python main.py settings --set output_dir=D:\Podcasts --set episode_limit=10
-```
-
-## 7. (Optional) Build a standalone installer
-
-If you're distributing podharvest to other people:
-
-```powershell
-./scripts/build_installer.ps1          # portable .zip via PyInstaller
-./scripts/build_installer.ps1 -Inno    # also builds a proper Windows installer (requires Inno Setup)
-```
-
-See [installer/podharvest.iss](../installer/podharvest.iss) for the Inno Setup script itself.
-
-## Troubleshooting
-
-| Problem | What's happening |
+| Folder | What is in it |
 |---|---|
-| `fetch` says the pipeline "is not wired up yet" | You're on an old build; update to a version where `podharvest.harvest` exists. |
-| Transcription is very slow | Run `python main.py hardware` - you may be on a large/slow model. Try a smaller one with `--model`. |
-| GUI says "no transcription model selected" | Hardware detection may still be running; click **Re-detect** and wait for the hardware summary to populate. |
-| A model download fails partway | Just re-run the command - downloads resume, and corrupted partial downloads are detected and retried automatically (see `podharvest/acquire.py`'s verification step). |
+| `audio` | The episode audio files |
+| `transcripts` | The transcripts, summaries and subtitle files |
+| `markdown` | Show notes you can read in any text editor |
+| `html` | Show notes as web pages |
+| `text` | Show notes as plain text |
+| `json` | The raw episode data, for anyone who wants it |
+
+The transcripts folder holds up to four files per episode:
+
+| File ending | What it is |
+|---|---|
+| `.md` | The transcript, nicely formatted |
+| `.txt` | The transcript as plain text |
+| `.summary.md` | A summary, and chapter markers if you asked for them |
+| `.srt` | A subtitle file, for following along while listening |
+
+## Things worth turning on
+
+Open **Settings** with Ctrl+comma.
+
+**Write a summary for each episode.** Gives you a paragraph on what the episode covered.
+Slower, but it means you can find that one episode where they talked about the thing.
+
+**Summarise the whole episode.** Without this, summaries cover roughly the first half of a
+long episode. With it, they cover all of it and take a bit longer.
+
+**Write chapter markers.** Adds a contents list with times at the top of each summary, so you
+can skip straight to the part you wanted.
+
+**Save a log file.** Keeps a record of each run, and lets you choose where it goes.
+
+## If you get stuck
+
+Press Ctrl+L to jump to the activity log. It explains what is happening in ordinary words,
+including anything that went wrong.
+
+The [README](../README.md) has a section on common problems. If your question is not answered
+there, the log text is the single most useful thing to include when asking for help.
+
+## Where next
+
+- The [README](../README.md) covers everyday use
+- The [technical reference](REFERENCE.md) covers the command line and every setting
+- The [model catalogue](MODELS.md) explains the differences between transcription models

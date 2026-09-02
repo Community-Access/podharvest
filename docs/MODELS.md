@@ -8,11 +8,11 @@
 > shipping anything built on it.
 
 
-Full technical detail behind the summary table in [`README.md`](../README.md). All prices are in disk space and RAM/VRAM, not money — everything here runs locally, for free, forever, with no API keys.
+Full technical detail behind the summary table in [`REFERENCE.md`](REFERENCE.md). Everything in this catalogue runs locally, for free, with no API key: the only cost is disk space and memory. Optional cloud models are covered in the technical reference instead.
 
 Source of truth in code: `podharvest/hardware.py` (`WHISPER_CHOICES`, `PARAKEET_CHOICES`, `PARAKEET_ONNX_CHOICES`, `CANARY_CHOICES`, `VOSK_CHOICES`, `MOONSHINE_CHOICES`, `ENRICHMENT_CHOICES`). Acquisition and download verification logic lives in `podharvest/acquire.py`; engine implementations live in `podharvest/transcribe.py`.
 
-**Want to measure which one is actually best for your use case instead of trusting this table?** Run `podharvest benchmark` - see ["Validating accuracy and comparing models"](../README.md#validating-accuracy-and-comparing-models) in the README for real timing + Word Error Rate comparisons.
+**Want to measure which one is actually best for your use case instead of trusting this table?** Run `podharvest benchmark` - see ["Validating accuracy and comparing models"](REFERENCE.md#validating-accuracy-and-comparing-models) in the technical reference for real timing + Word Error Rate comparisons.
 
 ## Speech-to-text (ASR) engines
 
@@ -122,4 +122,4 @@ Downloading and running a model isn't the same as knowing it's *good enough* for
 - **Speed** — real-time factor, measured directly (not estimated).
 - **Word Error Rate (WER) and accuracy** — computed via classic DP word-level alignment (the same family of metric used by academic ASR leaderboards), when you supply a reference transcript with `--reference`/`--reference-dir`.
 
-See [the README's benchmarking section](../README.md#validating-accuracy-and-comparing-models) for usage and a real example run.
+See [the benchmarking section](REFERENCE.md#validating-accuracy-and-comparing-models) for usage and a real example run.

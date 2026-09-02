@@ -1,331 +1,157 @@
 # podharvest
 
-[![CI](https://github.com/community-access/podharvest/actions/workflows/ci.yml/badge.svg)](https://github.com/community-access/podharvest/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Accessibility statement](https://img.shields.io/badge/accessibility-statement-blueviolet)](docs/ACCESSIBILITY.md)
+**Keep your favourite podcasts. Read them as well as hear them.**
 
-**Archive any RSS/Atom/podcast feed as Markdown, HTML, plain text and JSON — download every enclosure, and transcribe the audio entirely on your own machine.** No cloud APIs, no accounts, no data leaving your computer unless you ask it to.
+podharvest downloads a podcast and turns every episode into something you can read, search
+and keep: the audio file, a written transcript, a summary, and a tidy folder you own. It runs
+on your own computer. No account, no subscription, no sending your listening habits anywhere.
 
-Built and tested against real-world feeds such as [ACB Diabetics in Action](https://acbda.org/podcast) (`https://acbda.org/feed`).
+Point it at a podcast. Go make a cup of tea. Come back to a library.
 
-> **Project status:** the full pipeline described below - feed discovery, parsing, rendering, downloading, transcription, and accuracy benchmarking - is implemented and has been run end-to-end against real feeds. See [Roadmap](#roadmap) for what's still open.
+## What you get
 
-## Contents
+Give podharvest a podcast address and it builds you a folder like this, one entry per episode:
 
-- [Features](#features)
-- [Quick start](#quick-start)
-- [Command-line usage](#command-line-usage)
-- [The desktop GUI](#the-desktop-gui)
-- [Supported on-device models](#supported-on-device-models)
-- [Validating accuracy and comparing models](#validating-accuracy-and-comparing-models)
-- [Settings reference](#settings-reference)
-- [Portable app space](#portable-app-space)
-- [Accessibility](#accessibility)
-- [Building a standalone installer](#building-a-standalone-installer)
-- [Contributing](#contributing)
-- [Project structure](#project-structure)
-- [Roadmap](#roadmap)
-- [License](#license)
+- **The audio**, downloaded and named sensibly instead of `ep_final_FINAL_2.mp3`
+- **A transcript** you can read, search, or paste into anything
+- **A summary** of what the episode was actually about
+- **Chapter markers** with times, so you can jump to the bit you wanted
+- **Subtitle files** if you want to follow along while listening
+- **The show notes**, saved as a web page, plain text and Markdown
 
-## Features
+Everything is a normal file in a normal folder. Nothing is locked in an app. If you delete
+podharvest tomorrow, your library stays exactly where it is.
 
-- **Rich feed extraction** — full episode text (not just the truncated summary), authors, categories, chapters, funding links, and every enclosure. Point it at a show's web page and it finds the feed; paginated archives are followed and merged.
-- **Four output formats per episode** — Markdown, sanitized HTML, plain text, and structured JSON (CSV export too).
-- **Verified enclosure downloads** — audio, video, images and documents are sorted into separate folders per feed. Transfers are resumable across runs, rate-limitable, and checked against the length the server declared, so a truncated or duplicated download fails loudly instead of being recorded as complete.
-- **On-device transcription** — pick from multiple ASR engines (Whisper, Parakeet, Canary, Vosk, Moonshine); the app recommends the best one for *your* hardware automatically.
-- **Speaker diarization & timestamps** — toggle "who's speaking" labels and per-line/per-word timestamps independently, with a choice of three diarization backends (`pyannote`, PyTorch-free `sherpa-onnx`, or NVIDIA `nemo-msdd`).
-- **Optional transcript enrichment** — an on-device LLM pass (Phi-3.5, Llama 3.2, Nemotron-Mini, Mistral) for punctuation cleanup, summaries, and chapter titles.
-- **Hardware-aware model advisor** — probes your CPU, RAM, and GPU (CUDA/ROCm/Metal) and recommends a model that will actually run well, with a CPU-only fallback always available.
-- **Fully portable** — models, caches, logs, and config all live in one self-contained folder that can travel on a USB stick; nothing is installed into your home directory or global Python environment unless you choose the default location.
-- **Two front ends, one engine** — a full wxPython desktop GUI and a scriptable CLI, both driven by the same settings file and pipeline.
-- **Rich, persistent settings** — output folder, episode limits (a number, or "all"), download filters, ASR/enrichment choices, and output formats all persist between runs, shared by the CLI and the GUI.
-- **Keyboard-first and screen-reader-aware** — with an [accessibility statement](docs/ACCESSIBILITY.md) that states plainly what has been verified and what has not.
+## Getting started
 
-## Quick start
+1. Open podharvest.
+2. Paste the podcast's address into the **Feed URL** box. The show's ordinary web page usually
+   works, and podharvest will find the feed itself.
+3. Tick **Transcribe downloaded audio** if you want transcripts as well as audio.
+4. Press **Start**.
 
-### Windows, zero setup
+That is genuinely it. podharvest works out what your computer can handle and picks a suitable
+transcription model on its own. The first run downloads that model, so it takes a few minutes
+longer than every run after it.
 
-```bat
-run.bat gui
-```
+Want more detail, including how to install it? See the
+[step by step guide for your first run](docs/GETTING_STARTED.md).
 
-The first run creates a local virtual environment (`.venv`) next to the script, installs the minimal base requirements (just wxPython — everything else installs on demand), and launches the app. Re-run `run.bat` any time; it only sets up once.
+## How long will it take?
 
-### Install with pip
+Transcribing is the slow part, and podharvest tells you before you commit. Select any model
+and the **About this model** box gives you a straight answer for the podcast you have loaded:
+something like "About 3 hours 8 minutes (measured on this machine)".
 
-```powershell
-python -m pip install podharvest          # CLI only
-python -m pip install "podharvest[gui]"   # plus the desktop app
-```
+Roughly, on an ordinary laptop with no graphics card, an hour-long episode takes about three
+and a half minutes to transcribe. A hundred episodes is an afternoon. Start it and walk away.
 
-That gives you a `podharvest` command (and `podharvest-gui`, which opens the window without a console):
+While it runs, the **Episodes** list shows every episode and how far along each one is. You
+can arrow through it at any point to hear exactly where things stand. When the whole thing
+finishes, a message tells you so, and the Cancel button turns into **Open output folder**.
 
-```powershell
-podharvest gui              # desktop app
-podharvest hardware         # what will transcription look like on this machine?
-podharvest fetch https://acbda.org/podcast --limit 5
-```
+## Do I need to pay for anything?
 
-### From a source checkout
+No. Everything works on your own machine, for free, forever.
 
-```powershell
-python -m pip install -e ".[gui]"
-python main.py gui
-```
+There is an optional extra: if you already have an account with OpenAI, Google Gemini,
+OpenRouter or Ollama Cloud, you can paste in your API key and use their models instead. That
+can be faster on an older computer, and Google's models are rather good at working out who is
+speaking. You pay them directly for what you use, usually a few pounds for a whole podcast
+back catalogue.
 
-Requires Python 3.10+. The core pipeline runs on the standard library alone — `wxPython` is only needed for the GUI, and every ASR engine installs on demand the first time you use it.
+You do not need this. The free model that runs on your own computer was the most accurate of
+everything tested, cloud services included. The cloud option is there if you want it, not
+because you need it.
 
-**Paste the show's web page, not just its feed.** podharvest looks for a feed link on any HTML page you give it, so `https://acbda.org/podcast` works as well as `https://acbda.org/feed`.
+If you never add a key, podharvest never contacts any of them, and your audio never leaves
+your computer.
 
-**New to podharvest?** [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) walks through installing, your first fetch, and your first transcription step by step.
+## Common things people want to do
 
-## Command-line usage
+### Just the audio, no transcripts
 
-Running `podharvest`/`main.py` with no arguments always prints full usage instead of doing anything surprising:
+Untick **Transcribe downloaded audio**. podharvest becomes a straightforward podcast
+downloader that also saves the show notes properly.
+
+### Only the last few episodes
+
+Set **Limit episodes** to the number you want. Leave it at 0 for the lot.
+
+### Find out who said what
+
+Tick **Identify speakers**. Transcripts then read "Deborah: ..." rather than running every
+voice together. If you use a Google Gemini model, this happens automatically and it sometimes
+works out people's actual names from the recording.
+
+### Jump to the interesting part
+
+Tick **Write chapter markers with start and end times**. Each summary then opens with a
+contents list:
 
 ```text
-python main.py
-usage: podharvest [-h] [--version] [--app-dir PATH] [-v] [-q] [--log-file PATH] <command> ...
-
-  fetch       Download and convert a feed (and its enclosures).
-  hardware    Detect hardware and recommend an on-device transcription model.
-  gui         Launch the wxPython desktop application.
-  info        Show the portable app-space paths in use.
-  benchmark   Compare ASR models/engines on the same audio file(s).
-  settings    View or change saved defaults (output folder, limits, ASR options...).
+00:00:00 - 00:00:34   Welcome to the show
+00:00:34 - 00:01:09   Introducing this week's guest
+00:01:09 - 00:15:30   Cooking without sight
 ```
 
-Common examples:
+### Change where things are saved
 
-```powershell
-# Harvest every episode, converting content only (no downloads)
-python main.py fetch https://acbda.org/feed --no-download
+Type a folder into **Output folder**, or press **Browse** and pick one.
 
-# Grab only the 5 most recent episodes, with on-device transcription
-python main.py fetch https://acbda.org/feed --limit 5 --transcribe
+### Keep a record of what happened
 
-# Explicitly fetch everything (overrides any saved episode limit)
-python main.py fetch https://acbda.org/feed --limit all
+podharvest saves a log of every run. Choose where it goes in **Settings**, under
+**Activity log**. Handy if something goes wrong and you want to say what.
 
-# Re-use the last feed URL and saved settings
-python main.py fetch
+## Using a keyboard
 
-# See what hardware you have and which ASR model podharvest recommends
-python main.py hardware
-python main.py hardware --json
+podharvest is built to be driven entirely from the keyboard, and to work properly with a
+screen reader. Nothing needs a mouse.
 
-# View or change persisted defaults
-python main.py settings --show
-python main.py settings --set output_dir=D:\Podcasts --set episode_limit=10
-python main.py settings --reset
-```
-
-Every subcommand accepts `-v`/`-vv` for more detailed logs, `-q` for warnings-only, `--log-file PATH` for a persistent log, and `--app-dir PATH` to point at a different portable app space.
-
-## The desktop GUI
-
-`python main.py gui` (or `run.bat gui`) opens a resizable window with:
-
-- A **feed** section (URL + output folder, with a folder browser).
-- An **options** section: download enclosures on/off, transcribe on/off, and an episode limit spinner (0 = all).
-- A **transcript options** panel: model picker (auto-populated from the hardware advisor), timestamps toggle, and speaker-identification toggle — all disabled until transcription is turned on.
-- A **hardware** panel showing your CPU/RAM/GPU summary and the recommended model, with a re-detect button (Ctrl+D). If detection fails, transcription is switched off with an explanation and the rest of the app keeps working.
-- **Start/Cancel** buttons, a progress bar, and a readable activity log (Ctrl+L). The log does not announce itself — see [Accessibility](#accessibility).
-
-A File/View/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware.
-
-Every field you change is remembered (via the same `settings.json` the CLI uses) and restored the next time you open the app.
-
-## Supported on-device models
-
-podharvest never calls a cloud transcription API. Everything below runs locally and is downloaded on first use straight into the portable app space (see [`docs/MODELS.md`](docs/MODELS.md) for the full catalogue, licenses, and technical notes).
-
-### Speech-to-text (ASR)
-
-| Engine | Models | Hardware | Best for |
-|---|---|---|---|
-| **faster-whisper** | tiny.en → large-v3, incl. large-v3-turbo and distilled sizes (8 total) | Any CPU or GPU | The default, most portable choice |
-| **Parakeet** (NVIDIA NeMo) | TDT 0.6B, TDT 1.1B | NVIDIA GPU (CUDA) + PyTorch/NeMo | Fastest + most accurate English ASR available |
-| **Parakeet-ONNX** (sherpa-onnx) | TDT 0.6B | Any CPU (no PyTorch/NeMo/CUDA needed) | Same Parakeet accuracy, without the heavy ML stack |
-| **Canary** (NVIDIA NeMo) | 1B Flash | NVIDIA GPU (CUDA) | Multilingual (en/es/de/fr) with built-in punctuation |
-| **Vosk** | small / standard (English) | Any CPU, no AVX2 required | Old or very low-power machines |
-| **Moonshine** | tiny / base | Any CPU | Fastest CPU-only inference for short-form audio |
-
-### Optional transcript enrichment (post-processing LLM)
-
-| Model | Size (quantized) | Notes |
-|---|---|---|
-| Phi-3.5 Mini Instruct | ~2.4 GB | Small, fast, strong at summarizing |
-| Llama 3.2 3B Instruct | ~2.0 GB | Solid general-purpose default |
-| **Nemotron-Mini 4B Instruct** | ~2.6 GB | NVIDIA's deployable, Megatron-LM-derived model |
-| Mistral 7B Instruct | ~4.4 GB | Most capable, needs the most RAM |
-
-> Asked about NVIDIA **Megatron** directly: Megatron-LM/Megatron-Core is a training framework, not a shippable model, so it isn't listed as an ASR or enrichment engine itself. Its deployable descendant, **Nemotron**, is offered above for anyone who specifically wants a Megatron-lineage model.
-
-The hardware advisor (`podharvest hardware`, or the GUI's Hardware panel) always picks a model that fits your machine's CPU/RAM/GPU budget, and every engine has a CPU-only fallback so transcription never *requires* a GPU. Every model listed above is backed by an implemented engine — the catalogue and the dispatcher are kept in step, and there is a test asserting it.
-
-Measured on a CPU-only machine against a 5-minute clip: Vosk small runs at about **20x real-time** and produces word-level timestamps.
-
-## Validating accuracy and comparing models
-
-Don't just guess which model is best for your feed - measure it. `podharvest benchmark` transcribes the same audio file(s) with as many engine/model combinations as you like and reports timing, throughput, and (with a reference transcript) Word Error Rate:
-
-```powershell
-# Timing only
-podharvest benchmark clip.mp3 --model faster-whisper:tiny.en --model faster-whisper:small.en
-
-# Timing + accuracy against a known-good reference transcript
-podharvest benchmark clip.mp3 --reference-dir path\to\references --model faster-whisper:tiny.en --model faster-whisper:small.en
-```
-
-Each run prints a comparison table and saves a durable Markdown report (default `<app-dir>/logs/benchmark.md`, or `--report PATH`) with:
-
-- **Speed** — real-time factor (e.g. `26.9x` means an hour of audio transcribes in about 2m14s).
-- **WER / accuracy** — Word Error Rate and its complement, computed via classic DP word-alignment (substitutions + deletions + insertions ÷ reference word count), the same metric used by academic ASR benchmarks like LibriSpeech leaderboards.
-
-Real example from this machine (CPU-only, 3 faster-whisper sizes against the same 5-minute clip, scored against a distil-large-v3-generated reference):
-
-| Model | Speed | WER | Accuracy |
-|---|---|---|---|
-| tiny.en | 26.9x real-time | 4.2% | 95.8% |
-| base.en | 16.6x real-time | 4.2% | 95.8% |
-| small.en | 6.3x real-time | 3.4% | 96.6% |
-
-No reference transcript handy? Use `--reference "some text"` to apply the same reference to every file (useful for repeated clips of one recording), or generate a pseudo-reference with a larger/slower model first and benchmark faster models against it, as shown above.
-
-## Settings reference
-
-`podharvest settings --show` prints the full, self-describing settings file. Highlights:
-
-| Setting | Meaning |
+| Key | What it does |
 |---|---|
-| `output_dir` | Where harvested feeds are written (default: `<app-dir>/feeds`) |
-| `episode_limit` | A number, or `null`/`all` for every episode |
-| `download_enclosures`, `download_kinds` | Whether to download enclosures, and which kinds (audio/video/image/document/other) |
-| `concurrent_downloads`, `download_retries`, `download_rate_limit_kbps`, `max_enclosure_mb` | Network tuning |
-| `on_duplicate_file` | `overwrite`/`rename`/`skip` when a download's destination name already exists for a different source URL |
-| `transcribe`, `asr_engine`, `asr_model`, `concurrent_transcriptions` | Transcription defaults |
-| `include_timestamps`, `identify_speakers`, `diarization_backend` | Timestamps/speaker labels, and which diarization engine (`pyannote`/`sherpa-onnx`/`nemo-msdd`) |
-| `transcript_timestamp_style`, `transcript_speaker_style`, `transcript_paragraph_mode`, `transcript_max_line_chars` | Exactly how timestamps/speakers/paragraphs/line-wrapping are rendered |
-| `follow_pagination` | Follow `<link rel="next">` across paginated feed archives (default on) |
-| `hf_token` | Hugging Face token for the gated pyannote models (or `$PODHARVEST_HF_TOKEN`) |
-| `enrichment_enabled`, `enrichment_model` | Optional LLM post-processing |
-| `write_markdown`/`write_html`/`write_text`/`write_json`/`write_csv`/`write_srt`/`write_vtt` | Which output formats to generate |
-| `naming_template` | Per-episode file naming. Placeholders: `{date}` `{slug}` `{title}` `{index}` `{season}` `{number}` `{year}` `{month}` `{day}` |
-| `log_verbosity` | Default `-v` level when none is given on the command line |
+| Ctrl+R | Start |
+| Escape | Stop the current run |
+| Ctrl+E | Jump to the episode list |
+| Ctrl+L | Jump to the activity log |
+| Ctrl+comma | Settings |
+| Ctrl+Shift+O | Open the output folder |
+| Ctrl+D | Check your hardware again |
+| Alt or F10 | Open the menus |
 
-Change any of them with `podharvest settings --set key=value` (repeatable). The GUI exposes the most commonly changed subset and writes to the same file; settings it does not show (download filters, concurrency, enrichment, output formats) are CLI-only for now.
+The [accessibility statement](docs/ACCESSIBILITY.md) says plainly what has been tested and
+what has not. It is honest about the gaps rather than reassuring about them.
 
-## Portable app space
+## When something goes wrong
 
-Run `podharvest info` to see exactly where things live:
+**It looks frozen.** It probably is not. Transcribing an hour of audio takes minutes. Check
+the **Episodes** list, which updates as it goes, and the percentage beside the progress bar.
 
-```text
-App root          : C:\Users\you\.podharvest
-Models            : ...\models          (Whisper / Parakeet / Canary / Vosk / Moonshine / enrichment)
-Isolated packages : ...\pydeps          (optional heavy pip packages, never your global site-packages)
-HTTP cache        : ...\cache\http
-Config            : ...\config          (settings.json, cached hardware probe)
-Logs              : ...\logs
-Default output    : ...\feeds
-```
+**The transcript has times in it and I turned timestamps off.** Check which file you opened.
+The `.srt` and `.vtt` files are subtitle files, and subtitles are made of timestamps. The
+transcript itself is the `.md` or `.txt` file. You can turn subtitle files off in Settings.
 
-Resolution order: `--app-dir` flag → `PODHARVEST_HOME` env var → a `.podharvest-home` folder next to the app (portable/USB mode, used automatically by the PyInstaller build) → `~/.podharvest`.
+**It says it cannot find the podcast.** Try the show's normal web page address instead of the
+feed address. podharvest will hunt for the feed.
 
-## Accessibility
+**Summaries only cover the first half.** Turn on **Summarise the whole episode** in Settings.
+It takes longer but covers everything.
 
-Accessibility is a functional requirement here, and this section is deliberately specific about what has been verified versus what has not. **No manual screen reader pass has been performed yet** — [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) says so plainly and lists every known gap. Running one and reporting what you find is the most useful contribution anyone could make to this project right now.
+**Something else.** Open the activity log (Ctrl+L). It says what happened in plain words.
 
-What works today:
+## For the technically minded
 
-- **Keyboard-first.** Every control is reachable with Tab; no action needs a mouse. Primary actions have frame-level shortcuts (**Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware), and a File/View/Help menu bar gives an Alt entry point for exploring the app.
-- **Named, grouped controls.** Related controls sit in labeled `StaticBox` regions that expose a real grouping role. Controls without an adjacent label get an accessible name through `wx.Accessible`.
-- **System theming.** No colors, fonts, or custom drawing anywhere in the GUI, so high-contrast themes, focus indicators, and text scaling all work natively.
-- **Errors are never color-only.** Validation problems show a modal dialog with a text explanation and move focus to the offending field. A failed hardware probe disables transcription and explains why, rather than leaving the app unusable.
-- **The CLI never assumes a color terminal** and never requires interaction it can't also accept via flags.
-- **Archived output is semantic.** Generated pages have a `<main>` landmark, exactly one `<h1>`, normalized heading levels, a `<dl>` for metadata, real download links for enclosures, a validated `lang` attribute, and an `index.html` so the archive is navigable. Caption tracks on media are preserved.
+There is a command-line version, a benchmarking tool for comparing transcription models on
+your own audio, and a great deal of configuration. None of it is required.
 
-The most important limitation to know about: **the activity log does not announce new lines.** wxWidgets has no live-region API on any platform, so no screen reader speaks progress automatically during a run. Read it on demand with Ctrl+L, or the status bar with NVDA+End / JAWS Insert+Page Down. An earlier version of this README claimed otherwise; that claim was wrong and has been removed.
+- [Technical reference](docs/REFERENCE.md) covers every command, flag and setting
+- [Model catalogue](docs/MODELS.md) covers each model, its licence and its trade-offs
+- [Accessibility statement](docs/ACCESSIBILITY.md) covers what has been verified
+- [Contributing](CONTRIBUTING.md) covers how to help
 
-## Building a standalone installer
+## Licence
 
-```powershell
-./scripts/build_installer.ps1          # portable .zip via PyInstaller
-./scripts/build_installer.ps1 -Clean   # force a from-scratch rebuild
-./scripts/build_installer.ps1 -Inno    # also build a conventional Windows installer
-```
-
-The base command creates an isolated build environment, runs PyInstaller against [`packaging/podharvest.spec`](packaging/podharvest.spec) (a one-folder build so ASR models keep installing on demand rather than bloating the executable), marks the output as portable, and zips it as `dist/podharvest-<version>-win64-portable.zip`.
-
-Passing `-Inno` additionally compiles [`installer/podharvest.iss`](installer/podharvest.iss) with [Inno Setup](https://jrsoftware.org/isinfo.php) into `dist/installer/podharvest-<version>-setup.exe` — a conventional installer with a Start Menu entry, optional desktop icon, and uninstaller. Unlike the portable zip, the installed copy correctly stores its models/cache/config under the current user's profile rather than trying to write into Program Files.
-
-The resulting `podharvest.exe` (either build) keeps all of its models/cache/config in one folder — for the portable build, copy that folder anywhere (including a USB drive) and it keeps working.
-
-## Project structure
-
-```text
-main.py                    Standalone entry point (python main.py ...)
-podharvest/
-  cli.py                   argparse CLI with full usage screens
-  gui.py                   wxPython desktop application
-  appspace.py              Portable app-space resolution (models/cache/config/logs)
-  config.py                Persistent, rich Settings (shared by CLI + GUI)
-  hardware.py              CPU/RAM/GPU probing + ASR/enrichment model catalogue
-  acquire.py               On-demand, verified, resumable model + package acquisition
-  feed.py                  RSS/Atom/RDF feed discovery and parsing
-  render.py                Episode -> Markdown/HTML/text/JSON/CSV rendering
-  download.py              Concurrent, resumable enclosure downloading
-  transcribe.py            ASR engines (faster-whisper/Parakeet/Parakeet-ONNX), diarization (pyannote/sherpa-onnx/nemo-msdd), transcript formatting
-  enrich.py                Optional LLM transcript enrichment (summary + chapter titles) via llama-cpp-python
-  accuracy.py              Word Error Rate (WER) scoring
-  benchmark.py             Side-by-side engine/model timing + accuracy comparison
-  harvest.py               Orchestrates feed -> render -> download -> transcribe (what fetch/GUI Start call)
-  net.py                   Resilient HTTP client (retries, resume, rate limiting)
-  convert.py               Dependency-free HTML <-> Markdown/plain-text conversion
-  models.py                Feed/Episode/Enclosure data model
-  progress.py               Throttled progress bars for downloads & transcription
-  util.py                  Slugs, safe filenames, date/duration parsing, logging
-packaging/podharvest.spec  PyInstaller build spec
-installer/podharvest.iss   Inno Setup installer script
-scripts/build_installer.ps1  One-command portable + Inno Setup installer build
-requirements*.txt          Core / optional-ASR / build-only dependency sets
-run.bat                    Zero-setup Windows launcher
-docs/GETTING_STARTED.md    Step-by-step first-run guide
-docs/MODELS.md             Full model catalogue, licenses, acquisition details
-docs/ACCESSIBILITY.md      Accessibility statement: verified, unverified, and known gaps
-pyproject.toml             Packaging metadata and the podharvest console scripts
-tests/                     Test suite (pytest)
-.github/workflows/ci.yml   Tests + lint on Linux/macOS/Windows, Python 3.10-3.13
-```
-
-## Roadmap
-
-- [x] Core utilities, HTTP client, HTML↔Markdown conversion, data model
-- [x] Portable app space, rich settings, hardware advisor, model catalogue/acquisition (with download verification)
-- [x] CLI with full usage screens; wxPython GUI
-- [x] PyInstaller packaging + Inno Setup installer
-- [x] Feed discovery/parsing (RSS/Atom/RDF) → `podharvest.feed`
-- [x] Episode rendering to Markdown/HTML/text/JSON/CSV → `podharvest.render`
-- [x] Enclosure downloader with per-kind folders and a resumable manifest → `podharvest.download`
-- [x] Transcription engines (faster-whisper, Parakeet via NeMo, Parakeet via sherpa-onnx) → `podharvest.transcribe`
-- [x] Accuracy validation (WER) and model comparison → `podharvest.accuracy` / `podharvest.benchmark`
-- [x] `podharvest.harvest.run_harvest(...)` tying it all together (what `fetch`/the GUI's Start button call)
-- [x] Speaker diarization with a choice of backend: `pyannote` (default), PyTorch-free `sherpa-onnx` (live-tested, ~120MB download), or NVIDIA `nemo-msdd` (needs the full NeMo/PyTorch stack)
-- [x] Transcript enrichment pipeline wired into `harvest.py` (`podharvest/enrich.py`) - installs `llama-cpp-python` via a prebuilt CPU wheel on Windows (avoiding a from-source build that hits Windows' path-length limit on its vendored source tree), and is live-tested end to end: model download -> load -> real generated summary -> written to disk as `<slug>.summary.md`.
-- [x] Vosk and Moonshine engines implemented, so every catalogued model has a working engine
-- [x] Feed auto-discovery from a podcast's web page, and RFC 5005 pagination
-- [x] Packaging (`pip install podharvest`), test suite, and CI
-- [ ] NVIDIA Canary: routed through the NeMo engine but not yet verified on CUDA hardware
-- [ ] A manual screen reader pass over the GUI and the generated HTML (see `docs/ACCESSIBILITY.md`)
-- [ ] Spoken progress announcements in the GUI via a screen-reader speech bridge
-- [ ] Harden XML parsing against entity-expansion denial of service
-- [ ] Cryptographic hash pinning for downloaded models
-
-## Contributing
-
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, guidelines, and what needs doing. Security issues should go through [SECURITY.md](SECURITY.md) rather than a public issue.
-
-## License
-
-podharvest is [MIT licensed](LICENSE). Models it can download each carry their own license — see [`docs/MODELS.md`](docs/MODELS.md) before using any of them commercially.
+podharvest is free and open source under the [MIT licence](LICENSE). The transcription models
+it downloads each carry their own licence: see the [model catalogue](docs/MODELS.md) before
+using one commercially.

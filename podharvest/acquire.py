@@ -178,7 +178,7 @@ def ensure_package(app: AppSpace, pip_name: str, import_name: str) -> bool:
     last_output = ""
     for i, extra_args in enumerate(strategies):
         label = "prebuilt wheel" if extra_args else "standard"
-        LOG.info("Installing '%s' into the portable app space (%s, attempt %d/%d: %s)...",
+        LOG.info("Setting up '%s'. This is a one-time download (into %s; try %d of %d, %s)...",
                  pip_name, target, i + 1, len(strategies), label)
         cmd = [sys.executable, "-m", "pip", "install", "--target", target,
                "--no-warn-script-location", "--disable-pip-version-check", *extra_args, pip_name]
@@ -231,7 +231,7 @@ _PATH_LENGTH_MARKERS = ("no such file or directory", "filename too long", "path 
 
 
 def _log_install_failure(pip_name: str, output: str) -> None:
-    LOG.error("Could not install '%s' after trying every available strategy.", pip_name)
+    LOG.error("Could not set up '%s'. Every install method was tried and none worked.", pip_name)
     lowered = output.lower()
     if any(marker in lowered for marker in _PATH_LENGTH_MARKERS):
         LOG.error(

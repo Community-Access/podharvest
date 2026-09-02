@@ -347,7 +347,8 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
 
     hw = hardware_mod.probe()
     if args.models:
-        catalogue = {f"{c.engine}:{c.model}": c for c in hardware_mod.available_models(hw)}
+        catalogue = {f"{c.engine}:{c.model}": c
+                     for c in hardware_mod.available_models(hw, app, include_cloud=True)}
         choices = []
         for spec in args.models:
             if spec not in catalogue:
@@ -356,7 +357,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
                 return 2
             choices.append(catalogue[spec])
     else:
-        choices = hardware_mod.available_models(hw)
+        choices = hardware_mod.available_models(hw, app, include_cloud=True)
 
     audio_paths = [_Path(p) for p in args.audio]
     missing = [p for p in audio_paths if not p.exists()]

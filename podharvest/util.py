@@ -172,6 +172,25 @@ def human_size(num: int | None) -> str:
     return f"{size:.1f} TB"
 
 
+def spoken_duration(seconds: float | None) -> str:
+    """Spell a length of time out in words: "2 minutes 5 seconds"."""
+    if seconds is None or seconds < 0:
+        return "unknown"
+    seconds = round(seconds)
+    if seconds < 60:
+        return f"{seconds} second{'' if seconds == 1 else 's'}"
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hour{'' if hours == 1 else 's'}")
+    if minutes:
+        parts.append(f"{minutes} minute{'' if minutes == 1 else 's'}")
+    if secs and not hours:
+        parts.append(f"{secs} second{'' if secs == 1 else 's'}")
+    return " ".join(parts)
+
+
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from typing import Any
 
 from podharvest.appspace import AppSpace
@@ -64,6 +65,24 @@ class Settings:
     # -- optional enrichment (post-transcription LLM pass) ------------------
     enrichment_enabled: bool = False
     enrichment_model: str = ""
+    enrichment_full_episode: bool = True   # summarise the whole transcript in chunks.
+                                            # False sends only the first
+                                            # `enrichment_max_chars` and says so in
+                                            # the summary file.
+    enrichment_max_chars: int = 24000       # how much transcript fits in one pass;
+                                            # also the chunk size when summarising
+                                            # the whole episode
+    write_chapters: bool = False            # chapter markers with start/end times,
+                                            # written above the summary
+    enrichment_provider: str = ""           # "" -> the local model; otherwise a
+                                            # cloud provider name
+
+    # -- cloud providers ---------------------------------------------------
+    # API keys are NOT stored here - see podharvest.keystore. These only record
+    # what the user chose, never a secret.
+    cloud_enabled: bool = False             # master switch for every cloud feature
+    model_filter: str = "all"               # all | local | cloud - which models the
+                                            # picker offers
 
     # -- output formats --------------------------------------------------
     write_markdown: bool = True
@@ -76,6 +95,9 @@ class Settings:
 
     # -- app behavior --------------------------------------------------
     log_verbosity: int = 0           # default -v level when none is given on the CLI
+    log_to_file: bool = True         # keep a rolling activity log on disk
+    log_dir: str = ""                # "" -> AppSpace.logs_dir
+    show_finished_dialog: bool = True   # announce the end of a run with a dialog
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -108,6 +130,17 @@ def save(app: AppSpace, settings: Settings) -> None:
 
 def resolved_output_dir(app: AppSpace, settings: Settings) -> str:
     return settings.output_dir or str(app.default_output_dir)
+
+
+def resolved_log_dir(app: AppSpace, settings: Settings) -> str:
+    return settings.log_dir or str(app.logs_dir)
+
+
+def resolved_log_file(app: AppSpace, settings: Settings) -> Path | None:
+    """Where the activity log is written, or None when logging to disk is off."""
+    if not settings.log_to_file:
+        return None
+    return Path(resolved_log_dir(app, settings)) / "podharvest.log"
 
 
 def apply_overrides(settings: Settings, **overrides: Any) -> Settings:

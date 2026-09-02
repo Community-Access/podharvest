@@ -408,7 +408,7 @@ def fetch_and_parse(url: str, client: HttpClient | None = None,
 
         while next_url and next_url not in seen_pages and len(seen_pages) < MAX_FEED_PAGES:
             seen_pages.add(next_url)
-            LOG.info("Following feed pagination to %s", next_url)
+            LOG.info("The feed continues on another page; reading %s", next_url)
             try:
                 page_url, page_xml = fetch_feed_text(next_url, client)
                 page = parse_feed(page_xml, page_url)
@@ -426,7 +426,7 @@ def fetch_and_parse(url: str, client: HttpClient | None = None,
                 feed.episodes.append(ep)
                 added += 1
             feed.source_documents.append(page_url)
-            LOG.info("Page added %d new episode(s) (%d total).", added, len(feed.episodes))
+            LOG.info("Read another page of the feed: %d more episode(s), %d so far.", added, len(feed.episodes))
             next_url = page.next_page_url
 
         if next_url and len(seen_pages) >= MAX_FEED_PAGES:
@@ -435,5 +435,5 @@ def fetch_and_parse(url: str, client: HttpClient | None = None,
         for i, ep in enumerate(feed.episodes):
             ep.index = i
 
-    LOG.info("Parsed feed '%s' (%s): %d episode(s).", feed.title, feed.feed_type, len(feed.episodes))
+    LOG.info("Found %d episode(s) in '%s'.", len(feed.episodes), feed.title)
     return feed

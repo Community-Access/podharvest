@@ -282,6 +282,31 @@ def find_ffmpeg() -> str:
     return ""
 
 
+def find_ffprobe() -> str:
+    """Locate ffprobe, which ships beside ffmpeg.
+
+    Deriving it with `find_ffmpeg().replace("ffmpeg", "ffprobe")` looks obvious
+    and is wrong: it rewrites the first "ffmpeg" anywhere in the path, so a
+    perfectly normal install directory like `ffmpeg-9.0.1-full_build\\bin` turns
+    into `ffprobe-9.0.1-full_build\\bin` and nothing is found. Only the
+    filename may be substituted.
+    """
+    env = os.environ.get("PODHARVEST_FFPROBE")
+    if env and os.path.isfile(env):
+        return env
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        return ""
+    directory, name = os.path.split(ffmpeg)
+    # Keep the original casing of the extension: "ffmpeg.EXE" -> "ffprobe.EXE".
+    stem, ext = os.path.splitext(name)
+    candidate = os.path.join(directory, stem.replace("ffmpeg", "ffprobe") + ext)
+    return candidate if os.path.isfile(candidate) else ""
+
+
 def probe(refresh: bool = False) -> Hardware:
     """Inspect the machine. Result is cached for the life of the process."""
     global _CACHE
@@ -352,6 +377,29 @@ class ModelChoice:
     size_gb: float = 0.0       # approximate on-disk size once downloaded
     notes: str = ""
 
+    # -- where it runs -------------------------------------------------
+    location: str = "local"    # local | cloud
+    provider: str = ""         # cloud only: openai | gemini | openrouter | ollama-cloud
+
+    #: Rough real-time factor on a mid-range CPU - 17.0 means an hour of audio
+    #: takes about 3.5 minutes. Used for the time estimates shown next to each
+    #: model. `speed_measured` marks the figures that came from an actual
+    #: `podharvest benchmark` run rather than an informed guess.
+    speed_x: float = 0.0
+    speed_measured: bool = False
+    #: Cloud only: approximate USD per minute of audio, for the cost estimate.
+    cost_per_audio_minute: float = 0.0
+    #: Cloud only: the model can label speakers itself, with no separate
+    #: diarization pass.
+    speakers_built_in: bool = False
+    #: Whether the engine returns per-segment times. Without them there are no
+    #: chapter markers and no subtitle files - only a wall of text.
+    provides_timestamps: bool = True
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.location == "cloud"
+
     def __str__(self) -> str:  # used directly as a wx.Choice label
         return self.label
 
@@ -374,34 +422,44 @@ class ModelChoice:
 #                    works fine on podcast-length audio at a small accuracy cost.
 WHISPER_CHOICES: list[ModelChoice] = [
     ModelChoice("faster-whisper", "tiny.en", 1.0, "Whisper tiny.en - fastest, lowest accuracy",
-                source="Systran/faster-whisper-tiny.en", license="MIT", size_gb=0.1),
+                source="Systran/faster-whisper-tiny.en", license="MIT", size_gb=0.1,
+                speed_x=26.6, speed_measured=True),
     ModelChoice("faster-whisper", "base.en", 1.0, "Whisper base.en - fast, good for clear speech",
-                source="Systran/faster-whisper-base.en", license="MIT", size_gb=0.15),
+                source="Systran/faster-whisper-base.en", license="MIT", size_gb=0.15,
+                speed_x=16.6, speed_measured=True),
     ModelChoice("faster-whisper", "small.en", 2.0, "Whisper small.en - balanced (recommended default)",
-                source="Systran/faster-whisper-small.en", license="MIT", size_gb=0.5),
+                source="Systran/faster-whisper-small.en", license="MIT", size_gb=0.5,
+                speed_x=6.1, speed_measured=True),
     ModelChoice("faster-whisper", "distil-medium.en", 3.0, "Whisper distil-medium.en - accurate, still quick",
-                source="Systran/faster-distil-whisper-medium.en", license="MIT", size_gb=1.5),
+                source="Systran/faster-distil-whisper-medium.en", license="MIT", size_gb=1.5,
+                speed_x=4.0, speed_measured=False),
     ModelChoice("faster-whisper", "medium.en", 5.0, "Whisper medium.en - high accuracy",
-                source="Systran/faster-whisper-medium.en", license="MIT", size_gb=1.5),
+                source="Systran/faster-whisper-medium.en", license="MIT", size_gb=1.5,
+                speed_x=2.5, speed_measured=False),
     ModelChoice("faster-whisper", "distil-large-v3", 4.0,
                 "Whisper distil-large-v3 - near large-v3 accuracy, faster",
-                source="Systran/faster-distil-whisper-large-v3", license="MIT", size_gb=1.5),
+                source="Systran/faster-distil-whisper-large-v3", license="MIT", size_gb=1.5,
+                speed_x=3.2, speed_measured=False),
     ModelChoice("faster-whisper", "large-v3-turbo", 6.0,
                 "Whisper large-v3-turbo - OpenAI's 2024 pruned large model, ~8x faster than large-v3",
                 source="mobiuslabsgmbh/faster-whisper-large-v3-turbo", license="MIT", size_gb=1.6,
-                notes="Best accuracy-per-second of any Whisper size; a strong alternative to small.en."),
+                notes="Best accuracy-per-second of any Whisper size; a strong alternative to small.en.",
+                speed_x=5.0, speed_measured=False),
     ModelChoice("faster-whisper", "large-v3", 10.0, "Whisper large-v3 - best accuracy, slowest",
-                source="Systran/faster-whisper-large-v3", license="MIT", size_gb=3.0),
+                source="Systran/faster-whisper-large-v3", license="MIT", size_gb=3.0,
+                speed_x=1.2, speed_measured=False),
 ]
 PARAKEET_CHOICES: list[ModelChoice] = [
     ModelChoice("parakeet", "parakeet-tdt-0.6b-v2", 3.0, "Parakeet TDT 0.6B - fast, NVIDIA GPU only (NeMo/PyTorch)",
                 requires_cuda=True, source="nvidia/parakeet-tdt-0.6b-v2",
                 license="CC-BY-4.0", size_gb=2.4,
                 notes="English only. Best speed/accuracy ratio of any local ASR model on CUDA. "
-                      "Needs the full NeMo/PyTorch stack - see parakeet-onnx for a lighter alternative."),
+                      "Needs the full NeMo/PyTorch stack - see parakeet-onnx for a lighter alternative.",
+                speed_x=60.0, speed_measured=False),
     ModelChoice("parakeet", "parakeet-tdt-1.1b", 5.0, "Parakeet TDT 1.1B - most accurate, NVIDIA GPU only (NeMo/PyTorch)",
                 requires_cuda=True, source="nvidia/parakeet-tdt-1.1b",
-                license="CC-BY-4.0", size_gb=4.4, notes="English only."),
+                license="CC-BY-4.0", size_gb=4.4, notes="English only.",
+                speed_x=40.0, speed_measured=False),
 ]
 PARAKEET_ONNX_CHOICES: list[ModelChoice] = [
     ModelChoice("parakeet-onnx", "parakeet-tdt-0.6b-v2", 2.5,
@@ -410,33 +468,39 @@ PARAKEET_ONNX_CHOICES: list[ModelChoice] = [
                 license="CC-BY-4.0", size_gb=2.4,
                 notes="Runs via sherpa-onnx (k2-fsa) + onnxruntime only - a genuine PyTorch-free way "
                       "to run Parakeet on CPU (or GPU via onnxruntime-gpu). Slower than native CUDA "
-                      "NeMo but far lighter to install and works without an NVIDIA GPU."),
+                      "NeMo but far lighter to install and works without an NVIDIA GPU.",
+                speed_x=17.2, speed_measured=True),
 ]
 CANARY_CHOICES: list[ModelChoice] = [
     ModelChoice("nemo-canary", "canary-1b-flash", 6.0,
                 "Canary 1B Flash - multilingual + punctuation, NVIDIA GPU only",
                 requires_cuda=True, source="nvidia/canary-1b-flash",
                 license="CC-BY-NC-4.0", size_gb=4.0,
-                notes="English/Spanish/German/French with built-in punctuation and casing."),
+                notes="English/Spanish/German/French with built-in punctuation and casing.",
+                speed_x=30.0, speed_measured=False),
 ]
 VOSK_CHOICES: list[ModelChoice] = [
     ModelChoice("vosk", "vosk-model-small-en-us-0.15", 0.5,
                 "Vosk small (English) - tiny, pure CPU, works on any machine",
                 source="https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
                 license="Apache-2.0", size_gb=0.04,
-                notes="Lowest accuracy of the bunch, but needs no AVX2/GPU and starts instantly."),
+                notes="Lowest accuracy of the bunch, but needs no AVX2/GPU and starts instantly.",
+                speed_x=20.0, speed_measured=True),
     ModelChoice("vosk", "vosk-model-en-us-0.22", 2.0,
                 "Vosk standard (English) - CPU, better accuracy than the small model",
                 source="https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip",
-                license="Apache-2.0", size_gb=1.8),
+                license="Apache-2.0", size_gb=1.8,
+                speed_x=12.0, speed_measured=False),
 ]
 MOONSHINE_CHOICES: list[ModelChoice] = [
     ModelChoice("moonshine", "moonshine-tiny", 0.5,
                 "Moonshine tiny - very fast CPU inference, short-form tuned",
-                source="UsefulSensors/moonshine-tiny", license="MIT", size_gb=0.1),
+                source="UsefulSensors/moonshine-tiny", license="MIT", size_gb=0.1,
+                speed_x=40.0, speed_measured=False),
     ModelChoice("moonshine", "moonshine-base", 1.0,
                 "Moonshine base - fast CPU inference, better accuracy",
-                source="UsefulSensors/moonshine-base", license="MIT", size_gb=0.4),
+                source="UsefulSensors/moonshine-base", license="MIT", size_gb=0.4,
+                speed_x=25.0, speed_measured=False),
 ]
 
 ASR_CATALOGUE: dict[str, list[ModelChoice]] = {
@@ -478,7 +542,20 @@ ENRICHMENT_CHOICES: list[ModelChoice] = [
 ]
 
 
-def available_models(hw: Hardware) -> list[ModelChoice]:
+def available_models(hw: Hardware, app=None, *, include_cloud: bool = False) -> list[ModelChoice]:
+    """Models this machine can run, optionally plus configured cloud models.
+
+    Cloud models are left out unless asked for, so nothing that needs a network
+    call and an API key ever turns up by accident in a local-only listing.
+    """
+    local = _local_models(hw)
+    if not include_cloud or app is None:
+        return local
+    from podharvest.cloud import available_cloud_models
+    return local + available_cloud_models(app, kind="asr")
+
+
+def _local_models(hw: Hardware) -> list[ModelChoice]:
     """All ASR models that should comfortably fit the detected hardware."""
     budget = max(hw.usable_accel_memory_gb, 1.0)
     choices = [c for c in VOSK_CHOICES + MOONSHINE_CHOICES if c.min_ram_gb <= budget]

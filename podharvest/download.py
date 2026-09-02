@@ -152,7 +152,7 @@ def _resolve_destination(dest: Path, url: str, record: dict | None, on_duplicate
     if on_duplicate == "overwrite":
         return dest
     if on_duplicate == "skip":
-        LOG.info("Skipping %s: %s already exists (on_duplicate_file=skip).", url, dest.name)
+        LOG.info("Skipping %s: %s is already here.", url, dest.name)
         return None
     return unique_path(dest)
 
@@ -230,7 +230,7 @@ def _download_one(client: HttpClient, item: DownloadPlanItem, manifest: dict,
         enc.status = "ok"
         reporter.file_done()
     except Exception as exc:  # noqa: BLE001 - one failed file shouldn't sink the whole run
-        LOG.error("Failed to download %s: %s", enc.url, exc)
+        LOG.error("Could not download %s: %s", enc.url, exc)
         # Leave the .part file in place: the next run resumes from it.
         enc.status = "failed"
         reporter.fail()
@@ -269,7 +269,7 @@ def download_all(feed: Feed, feed_dir: Path, settings, *, client: HttpClient | N
 
     client = client or HttpClient(delay=0.0)
     workers = max(1, min(settings.concurrent_downloads, len(plan) or 1))
-    LOG.info("Downloading %d enclosure(s) with %d worker(s)...", len(plan), workers)
+    LOG.info("Downloading %d file(s), %d at a time...", len(plan), workers)
 
     ok = failed = 0
     if plan:
@@ -289,5 +289,5 @@ def download_all(feed: Feed, feed_dir: Path, settings, *, client: HttpClient | N
                     failed += 1
     reporter.close()
     _save_manifest(feed_dir, manifest)
-    LOG.info("Downloads complete: %d ok, %d failed, %d skipped.", ok, failed, len(plan) - ok - failed)
+    LOG.info("Downloads finished: %d saved, %d failed, %d skipped.", ok, failed, len(plan) - ok - failed)
     return ok, failed
