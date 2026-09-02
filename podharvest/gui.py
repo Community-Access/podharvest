@@ -149,13 +149,18 @@ class SettingsDialog(wx.Dialog):
         # -- summaries -----------------------------------------------------
         sum_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Episode summaries")
         sholder = sum_box.GetStaticBox()
+        # The trailing note is rewritten by _update_summary_note when the model
+        # changes: 12 minutes is the truth for the on-device model and nonsense
+        # for a cloud one, and a checkbox label is the part a screen reader
+        # reads on focus, so it has to stay accurate.
         self.chk_summaries = wx.CheckBox(
-            sholder, label="&Write a summary for each episode (slow: adds minutes per episode)")
+            sholder, label="&Write a summary for each episode")
         self.chk_summaries.SetValue(settings.enrichment_enabled)
         self.chk_summaries.Bind(wx.EVT_CHECKBOX, self._on_toggle_summaries)
         self.chk_full_episode = wx.CheckBox(
             sholder, label="Summarise the w&hole episode, not just the beginning")
         self.chk_full_episode.SetValue(settings.enrichment_full_episode)
+        self.chk_full_episode.Bind(wx.EVT_CHECKBOX, self._on_summary_model_changed)
         self.chk_full_episode.SetToolTip(
             "The summary model can only read about 24,000 characters at once, which is "
             "roughly half an hour-long episode. With this on, the transcript is summarised "
@@ -187,8 +192,18 @@ class SettingsDialog(wx.Dialog):
             "The on-device model is private but slow - a couple of minutes an episode. "
             "A cloud model does the same work in a couple of seconds, but the transcript "
             "text is sent to that provider.")
+        self.summary_model_choice.Bind(wx.EVT_CHOICE, self._on_summary_model_changed)
         model_row.Add(self.summary_model_choice, 1, wx.EXPAND)
         sum_box.Add(model_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        # Read-only and multi-line so it is a real tab stop that can be read
+        # line by line. Summaries are far and away the slowest thing podharvest
+        # does, and nobody should discover that only after starting a run.
+        self.summary_note = wx.TextCtrl(
+            sholder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
+            size=(-1, 90))
+        set_accessible_name(self.summary_note, "How long summaries will take")
+        sum_box.Add(self.summary_note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         outer.Add(sum_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         # -- subtitle files ------------------------------------------------
@@ -301,6 +316,83 @@ class SettingsDialog(wx.Dialog):
         on = self.chk_summaries.GetValue()
         self.chk_full_episode.Enable(on)
         self.summary_model_choice.Enable(on)
+        self._update_summary_note()
+
+    def _on_summary_model_changed(self, _evt) -> None:
+        self._update_summary_note()
+
+    def _update_summary_note(self) -> None:
+        """Say plainly how long summaries will take, for the current choice.
+
+        The figures are real: measured on a 59-minute episode on a CPU-only
+        machine during development, not estimated from model size.
+        """
+        if not self.chk_summaries.GetValue():
+            self.summary_note.SetValue(
+                "Summaries are off. Transcripts are still written; there is just no "
+                "summary or chapter list alongside them.")
+            self.summary_note.SetInsertionPoint(0)
+            return
+
+        picked = self.summary_model_choice.GetClientData(
+            self.summary_model_choice.GetSelection())
+        whole = self.chk_full_episode.GetValue()
+
+        # Keep the cost in the label itself, because that is what gets read out
+        # when focus lands on the checkbox.
+        self.chk_summaries.SetLabel(
+            "&Write a summary for each episode (about two seconds each, "
+            f"using {picked.provider})" if picked else
+            "&Write a summary for each episode (slow on this machine: about "
+            "12 minutes per hour-long episode)")
+
+        if picked is None:
+            lines = [
+                "WARNING: this is the slow part of podharvest.",
+                "",
+                "The on-device model runs on your own processor, so nothing is uploaded, "
+                "but it is not quick. On a one-hour episode on a machine with no graphics "
+                "card, writing the summary and its chapter markers took 12 minutes. "
+                "Transcribing the same episode took 3 and a half minutes, so the summary "
+                "is roughly three times the cost of the transcript itself.",
+                "",
+                "For a hundred episodes that is most of a day rather than an afternoon. "
+                "It runs unattended, so that may be perfectly fine. It is only a problem "
+                "if you were not expecting it.",
+            ]
+            if whole:
+                lines += [
+                    "",
+                    "\"Summarise the whole episode\" is on, which is what makes it this "
+                    "slow. Turning it off is two to three times faster, but the summary "
+                    "then only covers the opening stretch of a long episode.",
+                ]
+            lines += [
+                "",
+                "If you have an API key, choosing a cloud model above does the same work "
+                "in about two seconds an episode. The transcript text is sent to that "
+                "provider; your audio is not.",
+            ]
+        else:
+            provider = picked.provider
+            lines = [
+                f"About two seconds an episode, measured against {provider}.",
+                "",
+                "That is roughly four hundred times faster than the on-device model, which "
+                "takes about 12 minutes on a one-hour episode.",
+                "",
+                "The transcript text is sent to the provider and charged to your API key. "
+                "Your audio file is not uploaded for this: only the words.",
+            ]
+            if not whole:
+                lines += [
+                    "",
+                    "\"Summarise the whole episode\" is off, so summaries will only cover "
+                    "the beginning of a long episode. With a cloud model there is little "
+                    "reason to leave it off; it costs seconds, not minutes.",
+                ]
+        self.summary_note.SetValue("\n".join(lines))
+        self.summary_note.SetInsertionPoint(0)
 
     def _on_browse_log(self, _evt) -> None:
         with wx.DirDialog(self, "Choose a folder for the log file",
