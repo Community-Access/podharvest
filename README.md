@@ -27,7 +27,7 @@ podharvest tomorrow, your library stays exactly where it is.
 1. Open podharvest.
 2. Paste the podcast's address into the **Feed URL** box. The show's ordinary web page usually
    works, and podharvest will find the feed itself.
-3. Tick **Transcribe downloaded audio** if you want transcripts as well as audio.
+3. Check **Transcribe downloaded audio** if you want transcripts as well as audio.
 4. Press **Start**.
 
 That is genuinely it. podharvest works out what your computer can handle and picks a suitable
@@ -96,7 +96,7 @@ Set **Limit episodes** to the number you want. Leave it at 0 for the entire seri
 
 ### Find out who said what
 
-Tick **Identify speakers**. Transcripts then read "Deborah: ..." rather than running every
+Check **Identify speakers**. Transcripts then read "Deborah: ..." rather than running every
 voice together. If you use a Google Gemini model, this happens automatically and it sometimes
 works out people's actual names from the recording.
 
@@ -111,7 +111,7 @@ contents list:
 00:01:09 - 00:15:30   Cooking without sight
 ```
 
-Leave **Also add the chapters to the audio file** ticked and those chapters go into the
+Leave **Also add the chapters to the audio file** checked and those chapters go into the
 episode itself. Your podcast player then shows them as a list you can skip through with its
 own next-chapter and previous-chapter controls, so you can move around an hour-long episode
 by topic instead of dragging a progress bar. Apple Podcasts, Overcast, Pocket Casts and VLC

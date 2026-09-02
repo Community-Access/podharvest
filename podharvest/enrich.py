@@ -64,7 +64,11 @@ Find the points where the subject genuinely changes. For each one, write a line 
 Rules:
 - Use this format, one per line: hh:mm:ss - Title Here
 - Copy timestamps from the transcript. Never invent a time.
-- Aim for a chapter every few minutes. Do not mark every small remark.
+- Give AT MOST {want} chapters for this section. Fewer is better than more.
+- A chapter is a change of subject, not a passage of time. Do NOT emit one
+  chapter per minute or at regular intervals. Chapters will be of uneven
+  length, because real conversations change subject unevenly.
+- Skip a section entirely if the subject does not change in it.
 - Titles should say what is discussed, in under ten words.
 - Output only the list. No preamble, no commentary.
 
@@ -343,24 +347,58 @@ def make_chapters(app: AppSpace, choice: ModelChoice, segments, total_seconds: f
         return []
 
     chunks = split_transcript(stamped, max_input_chars)
+    # Aim for roughly one chapter every four minutes, within sane bounds. A
+    # weak model left to its own devices emits one per minute, which is a
+    # timeline, not a table of contents.
+    target_total = max(3, min(15, int(total_seconds // 240) or 3))
+    per_chunk = max(2, -(-target_total // max(1, len(chunks))))
+
     chapters: list[tuple[int, str]] = []
     try:
         for n, chunk in enumerate(chunks, 1):
             if on_step:
                 on_step(n, len(chunks))
-            reply = _generate(llm, _CHAPTER_PROMPT.format(transcript=chunk), max_tokens=400)
+            reply = _generate(llm, _CHAPTER_PROMPT.format(transcript=chunk, want=per_chunk),
+                              max_tokens=400)
             chapters.extend(_parse_chapters(reply, total_seconds))
     except Exception as exc:  # noqa: BLE001 - chapters are a bonus, not the transcript
         LOG.error("Could not work out chapter markers: %s", exc)
         return []
 
     chapters.sort(key=lambda item: item[0])
-    deduped: list[tuple[int, str]] = []
+    # Enforce real spacing. Without this a model that emitted a chapter every
+    # minute survives intact, and 34 one-minute "chapters" are worse than none:
+    # they look like a contents list while carrying no information.
+    min_gap = max(90.0, total_seconds / (target_total * 1.5)) if total_seconds else 90.0
+    spaced: list[tuple[int, str]] = []
     for at, title in chapters:
-        if deduped and at - deduped[-1][0] < 20:
+        if spaced and at - spaced[-1][0] < min_gap:
             continue
-        deduped.append((at, title))
-    return deduped
+        spaced.append((at, title))
+
+    if _looks_mechanical(spaced):
+        LOG.info("The chapter markers came back evenly spaced, which means the model "
+                 "listed the timeline rather than finding topic changes. Dropping them; "
+                 "a cloud summary model does this noticeably better.")
+        return []
+    return spaced
+
+
+def _looks_mechanical(chapters: list[tuple[int, str]]) -> bool:
+    """True when chapters sit on a regular grid rather than on real topic changes.
+
+    A model that does not understand the task emits one chapter per fixed
+    interval. The giveaway is that nearly every gap is identical, which almost
+    never happens when the boundaries are genuine.
+    """
+    if len(chapters) < 5:
+        return False
+    gaps = [b[0] - a[0] for a, b in zip(chapters, chapters[1:], strict=False)]
+    if not gaps:
+        return False
+    from collections import Counter
+    commonest, count = Counter(gaps).most_common(1)[0]
+    return commonest > 0 and count / len(gaps) >= 0.7
 
 
 def write_enrichment(app: AppSpace, choice: ModelChoice, transcript_path: Path,
