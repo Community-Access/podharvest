@@ -1,5 +1,13 @@
 # Supported on-device models
 
+> **Licensing:** podharvest itself is MIT-licensed, but that does **not** extend to the
+> models it can download. Whisper, Parakeet, Canary, Vosk, Moonshine, Phi, Llama, Nemotron,
+> Mistral and pyannote each carry their own separate licence, and they are not all
+> permissive — Canary is CC-BY-NC-4.0 (non-commercial), and the Llama models have their own
+> community licence. Check the entry below for whichever model you intend to use before
+> shipping anything built on it.
+
+
 Full technical detail behind the summary table in [`README.md`](../README.md). All prices are in disk space and RAM/VRAM, not money — everything here runs locally, for free, forever, with no API keys.
 
 Source of truth in code: `podharvest/hardware.py` (`WHISPER_CHOICES`, `PARAKEET_CHOICES`, `PARAKEET_ONNX_CHOICES`, `CANARY_CHOICES`, `VOSK_CHOICES`, `MOONSHINE_CHOICES`, `ENRICHMENT_CHOICES`). Acquisition and download verification logic lives in `podharvest/acquire.py`; engine implementations live in `podharvest/transcribe.py`.

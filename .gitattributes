@@ -1,0 +1,26 @@
+# Normalize line endings so a Windows checkout and a Linux checkout produce
+# identical blobs. Without this, contributors on different platforms generate
+# whole-file diffs that bury the real change.
+* text=auto eol=lf
+
+# Windows-only entry points must keep CRLF, or cmd.exe mis-parses them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary: never touch these.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.zip binary
+*.exe binary
+*.onnx binary
+*.gguf binary
+
+# Keep generated/vendored fixtures out of language statistics and diffs.
+bench/comparison-report.md linguist-generated=true
+docs/** linguist-documentation=true
