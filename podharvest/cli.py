@@ -17,7 +17,7 @@ import os
 import sys
 from collections.abc import Sequence
 
-from podharvest import __version__
+from podharvest import DISPLAY_NAME, __version__
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
@@ -71,7 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--version", action="version", version=f"{PROG} {__version__}")
+    # PROG stays lowercase so "usage: podharvest fetch ..." shows the command
+    # as typed, but --version is read aloud, so it gets the spoken form.
+    parser.add_argument("--version", action="version",
+                        version=f"{DISPLAY_NAME} {__version__}")
     _add_common(parser)
 
     sub = parser.add_subparsers(dest="command", metavar="<command>")
