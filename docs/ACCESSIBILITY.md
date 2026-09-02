@@ -4,7 +4,7 @@ podHarvest is built for people who rely on assistive technology, and accessibili
 
 This document is deliberately specific about **what has been verified, what is implemented but unverified, and what does not work**. An overstated accessibility claim is worse than a missing feature: it tells someone to rely on something that will not be there. Where an earlier version of this document made a claim the code did not support, the claim has been removed and the gap is listed below.
 
-**No manual screen reader pass has yet been performed against either the GUI or the generated output.** Everything below is derived from source review and Windows MSAA inspection. Volunteers to run a real NVDA/JAWS/VoiceOver session are very welcome — see [Reporting an accessibility issue](#reporting-an-accessibility-issue).
+**No manual screen reader pass has yet been performed against either the GUI or the generated output.** Everything below is derived from source review and Windows MSAA inspection. Volunteers to run a real NVDA/JAWS/VoiceOver session are very welcome - see [Reporting an accessibility issue](#reporting-an-accessibility-issue).
 
 ## Desktop GUI (wxPython)
 
@@ -13,7 +13,7 @@ This document is deliberately specific about **what has been verified, what is i
 | Requirement | Implementation |
 |---|---|
 | Labeled groupings | Related controls sit inside `wx.StaticBoxSizer` regions ("Feed", "Options", "Transcript options", "Hardware"), and child controls are parented to the actual `wx.StaticBox` rather than the panel. This produces a genuine grouping role with a name in the accessibility tree, and it is the part of the GUI that holds up best under inspection. |
-| Accessible names | Controls with an adjacent `wx.StaticText` take their name from it, which is how Windows names an edit field. Controls with no adjacent label — the progress gauge, the spin controls, the model picker — are given a name through a `wx.Accessible` subclass (`set_accessible_name` in `gui.py`). |
+| Accessible names | Controls with an adjacent `wx.StaticText` take their name from it, which is how Windows names an edit field. Controls with no adjacent label - the progress gauge, the spin controls, the model picker - are given a name through a `wx.Accessible` subclass (`set_accessible_name` in `gui.py`). |
 | Keyboard access | Every control is reachable with Tab/Shift+Tab, and no action requires a mouse. Primary actions also have frame-level shortcuts: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** go to the activity log, **Ctrl+D** re-detect hardware. |
 | Menu bar | A File/View/Help menu bar gives an Alt/F10 entry point, which is the conventional way to explore an unfamiliar application with a screen reader. Shortcuts are published in the menus and in Help ▸ About. |
 | Default action | Enter activates Start, so typing a feed URL and pressing Enter works as expected. |
@@ -47,15 +47,15 @@ Also outstanding:
 Verified against `cli.py`:
 
 - No command requires interactive or TTY-only input. Anything the CLI can prompt for also has a corresponding flag, so it is fully scriptable and behaves identically under a screen reader, a CI runner, or a plain terminal. `--no-gui-prompt` (or `PODHARVEST_NO_GUI=1`) suppresses the optional GUI offer.
-- Running with no arguments always prints full usage text — never a stack trace, never silent behavior.
+- Running with no arguments always prints full usage text - never a stack trace, never silent behavior.
 - Output never depends on color; no ANSI escapes are emitted anywhere. `-q`/`-v`/`-vv` control verbosity and `--log-file` gives a persistent plain-text record.
-- Errors are specific and actionable — naming the exact missing dependency and the command that fixes it — wherever podHarvest controls the error path.
+- Errors are specific and actionable - naming the exact missing dependency and the command that fixes it - wherever podHarvest controls the error path.
 
 The progress bar drawn on a TTY is a `\r`-updated ASCII bar, which reads poorly. It is suppressed automatically when output is not a terminal, and `--log-file` always receives plain percentage lines instead.
 
 ## Generated output
 
-This matters as much as the tool's own interface — the point of podHarvest is to produce durable, accessible archives.
+This matters as much as the tool's own interface - the point of podHarvest is to produce durable, accessible archives.
 
 - **HTML** is produced by an allow-list sanitizer (`podharvest/convert.py`). It preserves real `<h1>`–`<h6>` headings, `<ul>`/`<ol>`/`<li>`, `<dl>`, `<table>` with `<caption>`, `<th>`, `scope` and `headers`, `<figure>`/`<figcaption>`, and `<track>` caption tracks on media.
 - Each episode page has a `<main>` landmark, exactly one `<h1>`, and a link back to the feed index. Headings supplied by the feed are demoted so they nest under the page title instead of competing with it, and empty headings are dropped.
@@ -69,7 +69,7 @@ This matters as much as the tool's own interface — the point of podHarvest is 
 
 ### Known gaps in generated output
 
-- Images with no `alt` attribute are given `alt=""`, which marks them decorative. That is a claim the sanitizer cannot actually verify — it is a safe default, not preservation of information the feed never supplied.
+- Images with no `alt` attribute are given `alt=""`, which marks them decorative. That is a claim the sanitizer cannot actually verify - it is a safe default, not preservation of information the feed never supplied.
 - Inline `<svg>` and `<iframe>` embeds are removed for safety, currently without leaving a placeholder saying something was there.
 - A Markdown pipe table cannot express `scope`, `headers`, `<caption>`, or merged cells. Tables with those features lose that structure in the Markdown and plain-text outputs; the HTML output keeps it.
 - Tables whose header row is not the first row, or that use row headers only, are not detected correctly by the Markdown converter.

@@ -7,7 +7,7 @@ This is the full reference: every command, flag, setting and model. If you just 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 [![Accessibility statement](https://img.shields.io/badge/accessibility-statement-blueviolet)](ACCESSIBILITY.md)
 
-**Archive any RSS/Atom/podcast feed as Markdown, HTML, plain text and JSON — download every enclosure, and transcribe the audio entirely on your own machine.** No cloud APIs, no accounts, no data leaving your computer unless you ask it to.
+**Archive any RSS/Atom/podcast feed as Markdown, HTML, plain text and JSON, download every enclosure, and transcribe the audio on your own machine.** No account and no data leaving your computer by default. Cloud providers are available if you want them, but only with your own API key and only when you pick a cloud model.
 
 Built and tested against real-world feeds such as [ACB Diabetics in Action](https://acbda.org/podcast) (`https://acbda.org/feed`).
 
@@ -32,17 +32,17 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 
 ## Features
 
-- **Rich feed extraction** — full episode text (not just the truncated summary), authors, categories, chapters, funding links, and every enclosure. Point it at a show's web page and it finds the feed; paginated archives are followed and merged.
-- **Four output formats per episode** — Markdown, sanitized HTML, plain text, and structured JSON (CSV export too).
-- **Verified enclosure downloads** — audio, video, images and documents are sorted into separate folders per feed. Transfers are resumable across runs, rate-limitable, and checked against the length the server declared, so a truncated or duplicated download fails loudly instead of being recorded as complete.
-- **On-device transcription** — pick from multiple ASR engines (Whisper, Parakeet, Canary, Vosk, Moonshine); the app recommends the best one for *your* hardware automatically.
-- **Speaker diarization & timestamps** — toggle "who's speaking" labels and per-line/per-word timestamps independently, with a choice of three diarization backends (`pyannote`, PyTorch-free `sherpa-onnx`, or NVIDIA `nemo-msdd`).
-- **Optional transcript enrichment** — an on-device LLM pass (Phi-3.5, Llama 3.2, Nemotron-Mini, Mistral) for punctuation cleanup, summaries, and chapter titles.
-- **Hardware-aware model advisor** — probes your CPU, RAM, and GPU (CUDA/ROCm/Metal) and recommends a model that will actually run well, with a CPU-only fallback always available.
-- **Fully portable** — models, caches, logs, and config all live in one self-contained folder that can travel on a USB stick; nothing is installed into your home directory or global Python environment unless you choose the default location.
-- **Two front ends, one engine** — a full wxPython desktop GUI and a scriptable CLI, both driven by the same settings file and pipeline.
-- **Rich, persistent settings** — output folder, episode limits (a number, or "all"), download filters, ASR/enrichment choices, and output formats all persist between runs, shared by the CLI and the GUI.
-- **Keyboard-first and screen-reader-aware** — with an [accessibility statement](ACCESSIBILITY.md) that states plainly what has been verified and what has not.
+- **Rich feed extraction** - full episode text (not just the truncated summary), authors, categories, chapters, funding links, and every enclosure. Point it at a show's web page and it finds the feed; paginated archives are followed and merged.
+- **Four output formats per episode** - Markdown, sanitized HTML, plain text, and structured JSON (CSV export too).
+- **Verified enclosure downloads** - audio, video, images and documents are sorted into separate folders per feed. Transfers are resumable across runs, rate-limitable, and checked against the length the server declared, so a truncated or duplicated download fails loudly instead of being recorded as complete.
+- **On-device transcription** - pick from multiple ASR engines (Whisper, Parakeet, Canary, Vosk, Moonshine); the app recommends the best one for *your* hardware automatically.
+- **Speaker diarization & timestamps** - toggle "who's speaking" labels and per-line/per-word timestamps independently, with a choice of three diarization backends (`pyannote`, PyTorch-free `sherpa-onnx`, or NVIDIA `nemo-msdd`).
+- **Optional transcript enrichment** - an on-device LLM pass (Phi-3.5, Llama 3.2, Nemotron-Mini, Mistral) for punctuation cleanup, summaries, and chapter titles.
+- **Hardware-aware model advisor** - probes your CPU, RAM, and GPU (CUDA/ROCm/Metal) and recommends a model that will actually run well, with a CPU-only fallback always available.
+- **Fully portable** - models, caches, logs, and config all live in one self-contained folder that can travel on a USB stick; nothing is installed into your home directory or global Python environment unless you choose the default location.
+- **Two front ends, one engine** - a full wxPython desktop GUI and a scriptable CLI, both driven by the same settings file and pipeline.
+- **Rich, persistent settings** - output folder, episode limits (a number, or "all"), download filters, ASR/enrichment choices, and output formats all persist between runs, shared by the CLI and the GUI.
+- **Keyboard-first and screen-reader-aware** - with an [accessibility statement](ACCESSIBILITY.md) that states plainly what has been verified and what has not.
 
 ## Quick start
 
@@ -52,7 +52,7 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 run.bat gui
 ```
 
-The first run creates a local virtual environment (`.venv`) next to the script, installs the minimal base requirements (just wxPython — everything else installs on demand), and launches the app. Re-run `run.bat` any time; it only sets up once.
+The first run creates a local virtual environment (`.venv`) next to the script, installs the minimal base requirements (just wxPython - everything else installs on demand), and launches the app. Re-run `run.bat` any time; it only sets up once.
 
 ### Install with pip
 
@@ -76,7 +76,7 @@ python -m pip install -e ".[gui]"
 python main.py gui
 ```
 
-Requires Python 3.10+. The core pipeline runs on the standard library alone — `wxPython` is only needed for the GUI, and every ASR engine installs on demand the first time you use it.
+Requires Python 3.10+. The core pipeline runs on the standard library alone - `wxPython` is only needed for the GUI, and every ASR engine installs on demand the first time you use it.
 
 **Paste the show's web page, not just its feed.** podHarvest looks for a feed link on any HTML page you give it, so `https://acbda.org/podcast` works as well as `https://acbda.org/feed`.
 
@@ -131,9 +131,9 @@ Every subcommand accepts `-v`/`-vv` for more detailed logs, `-q` for warnings-on
 
 - A **feed** section (URL + output folder, with a folder browser).
 - An **options** section: download enclosures on/off, transcribe on/off, and an episode limit spinner (0 = all).
-- A **transcript options** panel: model picker (auto-populated from the hardware advisor), timestamps toggle, and speaker-identification toggle — all disabled until transcription is turned on.
+- A **transcript options** panel: model picker (auto-populated from the hardware advisor), timestamps toggle, and speaker-identification toggle - all disabled until transcription is turned on.
 - A **hardware** panel showing your CPU/RAM/GPU summary and the recommended model, with a re-detect button (Ctrl+D). If detection fails, transcription is switched off with an explanation and the rest of the app keeps working.
-- **Start/Cancel** buttons, a progress bar, and a readable activity log (Ctrl+L). The log does not announce itself — see [Accessibility](#accessibility).
+- **Start/Cancel** buttons, a progress bar, and a readable activity log (Ctrl+L). The log does not announce itself - see [Accessibility](#accessibility).
 
 A File/View/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware.
 
@@ -165,7 +165,7 @@ Everything below runs locally and is downloaded on first use straight into the p
 
 > Asked about NVIDIA **Megatron** directly: Megatron-LM/Megatron-Core is a training framework, not a shippable model, so it isn't listed as an ASR or enrichment engine itself. Its deployable descendant, **Nemotron**, is offered above for anyone who specifically wants a Megatron-lineage model.
 
-The hardware advisor (`podharvest hardware`, or the GUI's Hardware panel) always picks a model that fits your machine's CPU/RAM/GPU budget, and every engine has a CPU-only fallback so transcription never *requires* a GPU. Every model listed above is backed by an implemented engine — the catalogue and the dispatcher are kept in step, and there is a test asserting it.
+The hardware advisor (`podharvest hardware`, or the GUI's Hardware panel) always picks a model that fits your machine's CPU/RAM/GPU budget, and every engine has a CPU-only fallback so transcription never *requires* a GPU. Every model listed above is backed by an implemented engine - the catalogue and the dispatcher are kept in step, and there is a test asserting it.
 
 Measured on a CPU-only machine against a 5-minute clip: Vosk small runs at about **20x real-time** and produces word-level timestamps.
 
@@ -183,8 +183,8 @@ podharvest benchmark clip.mp3 --reference-dir path\to\references --model faster-
 
 Each run prints a comparison table and saves a durable Markdown report (default `<app-dir>/logs/benchmark.md`, or `--report PATH`) with:
 
-- **Speed** — real-time factor (e.g. `26.9x` means an hour of audio transcribes in about 2m14s).
-- **WER / accuracy** — Word Error Rate and its complement, computed via classic DP word-alignment (substitutions + deletions + insertions ÷ reference word count), the same metric used by academic ASR benchmarks like LibriSpeech leaderboards.
+- **Speed** - real-time factor (e.g. `26.9x` means an hour of audio transcribes in about 2m14s).
+- **WER / accuracy** - Word Error Rate and its complement, computed via classic DP word-alignment (substitutions + deletions + insertions ÷ reference word count), the same metric used by academic ASR benchmarks like LibriSpeech leaderboards.
 
 Real example from this machine (CPU-only, same 5-minute clip, scored against a human-checked reference transcript):
 
@@ -208,7 +208,7 @@ want to, you can add your own API key for a cloud provider and pick its models i
 Nothing is uploaded unless you add a key **and** select a cloud model.
 
 Add keys in **Settings** (`Ctrl+,`), or set an environment variable such as
-`PODHARVEST_OPENAI_KEY` — the variable always wins, and is never overwritten from the UI.
+`PODHARVEST_OPENAI_KEY` - the variable always wins, and is never overwritten from the UI.
 Keys are stored encrypted for your Windows account (DPAPI) or in the macOS login Keychain,
 never in `settings.json`.
 
@@ -234,11 +234,11 @@ Measured against the same 5-minute clip and human reference as the local models:
 | gemini-pro-latest | Gemini | 6.5x | 3.0% | **yes, named** | yes |
 
 The local Parakeet model was the most accurate of everything tested. Cloud models are worth
-it for speed on a slow machine, or for Gemini's speaker labelling — which worked out a
+it for speed on a slow machine, or for Gemini's speaker labelling - which worked out a
 speaker's actual name from the audio rather than numbering the voices.
 
 **On upload size.** Audio is re-encoded to 16 kHz mono Opus before upload, which is the
-format these models listen to anyway, and which turns a 54 MB episode into about 7 MB — so a
+format these models listen to anyway, and which turns a 54 MB episode into about 7 MB - so a
 normal episode is a single request. Anything still over a provider's limit is split at
 natural pauses found with silence detection, never mid-word, and the pieces are stitched back
 onto one timeline. Forcing a 5-minute clip into three pieces moved the error rate from 2.77%
@@ -257,15 +257,15 @@ of each episode summary:
 - **00:01:09 - 00:01:30**  Deborah's Disclaimer and Three Categories of Help
 ```
 
-The times come from the transcript's own segment timestamps, not from the model's guesswork —
-anything outside the episode's length is discarded. Chapters need a model that returns
-timestamps, so the OpenAI GPT-4o transcribe models cannot produce them.
-
-## Chapter markers
-
-`write_chapters` works out where each topic starts and ends, from the transcript's own segment
+`write_chapters` works out where each topic starts and ends from the transcript's own segment
 timestamps rather than from the model's guesswork; any time falling outside the episode is
 discarded. The result is written above the summary in `<episode>.summary.md`.
+
+A model that does not understand the task emits one chapter per fixed interval, producing
+something that looks like a contents list while carrying no information. Chapters are spaced
+to roughly one per four minutes, and a set where 70% or more of the gaps are identical is
+discarded entirely with a log line explaining why. The on-device model frequently fails this
+bar; the cloud summary models do noticeably better.
 
 `chapters_into_audio` (default on) additionally writes them into the audio file as chapter
 metadata, which podcast players expose as a navigable list. Supported for `.mp3`, `.m4a`,
@@ -277,6 +277,26 @@ succeeded, so an interrupted write cannot truncate an episode.
 
 Chapters need a model that returns per-segment timestamps. The OpenAI GPT-4o transcribe models
 return plain text only and are skipped with a log line saying so.
+
+## Where the prices come from
+
+Cloud cost estimates are indicative, not a quote. Only OpenRouter publishes prices through an
+API; OpenAI, Google and Ollama Cloud do not, so their per-minute rates are copied by hand and
+go stale silently when a provider changes them. `cloud.PRICES_CHECKED` records when.
+
+Because of that:
+
+- Costs are rounded to the precision the input actually supports. "$10", not "$9.72", which
+  would imply an accuracy a hand-copied rate does not have. Small amounts read as "a few
+  cents" rather than a false decimal.
+- Every stale figure states the date it was checked and links to the provider's current
+  pricing page.
+- Where a provider does publish prices (OpenRouter), they are read at runtime, cached for the
+  session, and the description says the figure came from the provider. A failed lookup falls
+  back to the stored value rather than breaking the model list.
+
+If you are about to spend real money on a large back catalogue, check the provider's own page.
+The estimate exists to stop you being surprised, not to be a bill.
 
 ## A note on the name
 
@@ -338,7 +358,7 @@ Resolution order: `--app-dir` flag → `PODHARVEST_HOME` env var → a `.podharv
 
 ## Accessibility
 
-Accessibility is a functional requirement here, and this section is deliberately specific about what has been verified versus what has not. **No manual screen reader pass has been performed yet** — [`ACCESSIBILITY.md`](ACCESSIBILITY.md) says so plainly and lists every known gap. Running one and reporting what you find is the most useful contribution anyone could make to this project right now.
+Accessibility is a functional requirement here, and this section is deliberately specific about what has been verified versus what has not. **No manual screen reader pass has been performed yet** - [`ACCESSIBILITY.md`](ACCESSIBILITY.md) says so plainly and lists every known gap. Running one and reporting what you find is the most useful contribution anyone could make to this project right now.
 
 What works today:
 
@@ -361,9 +381,9 @@ The most important limitation to know about: **the activity log does not announc
 
 The base command creates an isolated build environment, runs PyInstaller against [`packaging/podharvest.spec`](../packaging/podharvest.spec) (a one-folder build so ASR models keep installing on demand rather than bloating the executable), marks the output as portable, and zips it as `dist/podharvest-<version>-win64-portable.zip`.
 
-Passing `-Inno` additionally compiles [`installer/podharvest.iss`](../installer/podharvest.iss) with [Inno Setup](https://jrsoftware.org/isinfo.php) into `dist/installer/podharvest-<version>-setup.exe` — a conventional installer with a Start Menu entry, optional desktop icon, and uninstaller. Unlike the portable zip, the installed copy correctly stores its models/cache/config under the current user's profile rather than trying to write into Program Files.
+Passing `-Inno` additionally compiles [`installer/podharvest.iss`](../installer/podharvest.iss) with [Inno Setup](https://jrsoftware.org/isinfo.php) into `dist/installer/podharvest-<version>-setup.exe` - a conventional installer with a Start Menu entry, optional desktop icon, and uninstaller. Unlike the portable zip, the installed copy correctly stores its models/cache/config under the current user's profile rather than trying to write into Program Files.
 
-The resulting `podharvest.exe` (either build) keeps all of its models/cache/config in one folder — for the portable build, copy that folder anywhere (including a USB drive) and it keeps working.
+The resulting `podharvest.exe` (either build) keeps all of its models/cache/config in one folder - for the portable build, copy that folder anywhere (including a USB drive) and it keeps working.
 
 ## Project structure
 
@@ -427,8 +447,8 @@ tests/                     Test suite (pytest)
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, guidelines, and what needs doing. Security issues should go through [SECURITY.md](../SECURITY.md) rather than a public issue.
+Contributions are welcome - see [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, guidelines, and what needs doing. Security issues should go through [SECURITY.md](../SECURITY.md) rather than a public issue.
 
 ## License
 
-podHarvest is [MIT licensed](../LICENSE). Models it can download each carry their own license — see [`MODELS.md`](MODELS.md) before using any of them commercially.
+podHarvest is [MIT licensed](../LICENSE). Models it can download each carry their own license - see [`MODELS.md`](MODELS.md) before using any of them commercially.

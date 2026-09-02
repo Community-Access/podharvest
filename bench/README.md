@@ -10,12 +10,12 @@ main README.
 |---|---|---|
 | `run_benchmark.py` | yes | The harness. |
 | `comparison-report.md` | yes | The generated report from a past run. |
-| `ep1-clip.txt` | yes | Reference transcript — a few KB of text, needed to compute WER. |
+| `ep1-clip.txt` | yes | Reference transcript - a few KB of text, needed to compute WER. |
 | `ep*-clip.mp3` | **no** | Audio is gitignored. See below. |
 
 The audio clips are excerpts from [ACB Diabetics in Action](https://acbda.org/podcast), a
 podcast produced by the American Council of the Blind. They are third-party content and are
-**not redistributed with this repository** — `.gitignore` excludes `bench/*.mp3`.
+**not redistributed with this repository** - `.gitignore` excludes `bench/*.mp3`.
 
 `ep1-clip.txt` is a short transcript excerpt of the corresponding clip, kept because a WER
 score is meaningless without a reference. It is included for research and benchmarking
@@ -37,6 +37,6 @@ podharvest benchmark bench/ep1-clip.mp3 --reference-dir bench \
     --model faster-whisper:tiny.en --model faster-whisper:small.en
 ```
 
-Any audio works — the fixtures here are not special, they are just what the quoted figures
+Any audio works - the fixtures here are not special, they are just what the quoted figures
 were measured against. If you are adding benchmark numbers to the docs, say which clip and
 which machine they came from; a real-time factor is meaningless without both.

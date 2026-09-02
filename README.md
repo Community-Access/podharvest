@@ -58,7 +58,9 @@ There is an optional extra: if you already have an account with OpenAI, Google G
 OpenRouter or Ollama Cloud, you can paste in your API key and use their models instead. That
 can be faster on an older computer, and Google's models are rather good at working out who is
 speaking. You pay them directly for what you use, usually a few dollars for a whole podcast
-back catalogue.
+back catalogue. podHarvest shows a rough cost before you start, but treat it as a
+ballpark: providers change their prices and most do not publish them in a form an app
+can read, so the figure is a dated snapshot with a link to check the current rate.
 
 You do not need this. The free model that runs on your own computer was the most accurate of
 everything tested, cloud services included. The cloud option is there if you want it, not

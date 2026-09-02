@@ -46,7 +46,7 @@ First public release.
 - **Feed pagination**: RFC 5005 `<link rel="next">` chains are followed and merged, so a paginated archive no longer silently yields only its most recent page.
 - **Vosk and Moonshine ASR engines**, which were previously catalogued and offered in the model picker but raised "not implemented" when selected.
 - On-device transcription via faster-whisper, Parakeet (NeMo and ONNX), Vosk, and Moonshine, with a hardware advisor that recommends a model the machine can actually run.
-- Speaker diarization with a choice of `pyannote`, `sherpa-onnx`, or `nemo-msdd` backends, and `--hf-token` / `$PODHARVEST_HF_TOKEN` to supply the token pyannote requires — previously there was no way to provide one.
+- Speaker diarization with a choice of `pyannote`, `sherpa-onnx`, or `nemo-msdd` backends, and `--hf-token` / `$PODHARVEST_HF_TOKEN` to supply the token pyannote requires - previously there was no way to provide one.
 - Optional on-device LLM transcript enrichment (Phi-3.5, Llama 3.2, Nemotron-Mini, Mistral).
 - Accuracy benchmarking with Word Error Rate scoring (`podharvest benchmark`).
 - A wxPython desktop GUI and a scriptable CLI over one shared pipeline and settings file.
@@ -57,10 +57,10 @@ First public release.
 
 ### Fixed
 
-- **Downloads could be silently corrupted.** An interrupted transfer was retried by re-requesting the same byte range into the same append-mode file handle, splicing duplicate bytes into the middle of the file. A 400,000-byte resource could land on disk as 596,608 bytes, be hashed, and be recorded in the manifest as complete — so it was never re-fetched, and transcription then ran against corrupt audio.
+- **Downloads could be silently corrupted.** An interrupted transfer was retried by re-requesting the same byte range into the same append-mode file handle, splicing duplicate bytes into the middle of the file. A 400,000-byte resource could land on disk as 596,608 bytes, be hashed, and be recorded in the manifest as complete - so it was never re-fetched, and transcription then ran against corrupt audio.
 - **Truncated downloads were accepted as complete.** A response that ended early was never compared against the declared length. Transfers are now verified, staged through a `.part` file, and only renamed into place once the byte count checks out.
 - **Resume did not work across runs.** A partial file from an interrupted run was skipped rather than resumed, leaving an orphaned fragment behind and re-downloading from scratch.
-- **Stored HTML injection in generated pages.** Episode metadata — author names, categories — was interpolated into archived HTML with no escaping at all, bypassing the sanitizer that guards the episode body.
+- **Stored HTML injection in generated pages.** Episode metadata - author names, categories - was interpolated into archived HTML with no escaping at all, bypassing the sanitizer that guards the episode body.
 - **A table with omitted `</td>`/`</tr>` discarded the entire episode body.** Both end tags are optional in HTML and feeds omit them routinely; an unclosed cell diverted all subsequent text into a buffer that was never drained, so the Markdown and plain-text archives came out empty with no error and no log line.
 - **Caption tracks were stripped from archived media.** `<track>` was not in the sanitizer's allow-list, so captions were deleted from captioned video and audio.
 - **Every Atom feed was labelled `lang="en"`.** The Atom parser never read `xml:lang`, so a Japanese or Arabic feed archived as English and would be read aloud by the wrong speech synthesizer. Language is now parsed for Atom and RDF, validated as a language tag, and normalized (`en_US` becomes `en-US`).

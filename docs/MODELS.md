@@ -3,7 +3,7 @@
 > **Licensing:** podHarvest itself is MIT-licensed, but that does **not** extend to the
 > models it can download. Whisper, Parakeet, Canary, Vosk, Moonshine, Phi, Llama, Nemotron,
 > Mistral and pyannote each carry their own separate licence, and they are not all
-> permissive — Canary is CC-BY-NC-4.0 (non-commercial), and the Llama models have their own
+> permissive - Canary is CC-BY-NC-4.0 (non-commercial), and the Llama models have their own
 > community licence. Check the entry below for whichever model you intend to use before
 > shipping anything built on it.
 
@@ -18,14 +18,14 @@ Source of truth in code: `podharvest/hardware.py` (`WHISPER_CHOICES`, `PARAKEET_
 
 ### faster-whisper (default, most portable)
 
-CTranslate2 re-implementation of OpenAI Whisper. Runs on CPU (`int8`) or any GPU (`float16`). No hard hardware requirement — always available as the universal fallback.
+CTranslate2 re-implementation of OpenAI Whisper. Runs on CPU (`int8`) or any GPU (`float16`). No hard hardware requirement - always available as the universal fallback.
 
 | Model | Approx. size | Min RAM/VRAM | Notes |
 |---|---|---|---|
 | `tiny.en` | 0.1 GB | 1 GB | Fastest, lowest accuracy |
 | `base.en` | 0.15 GB | 1 GB | Fast, good for clear speech |
 | `small.en` | 0.5 GB | 2 GB | **Recommended default balance** |
-| `distil-medium.en` | 1.5 GB | 3 GB | Distilled — near-medium accuracy, faster |
+| `distil-medium.en` | 1.5 GB | 3 GB | Distilled - near-medium accuracy, faster |
 | `medium.en` | 1.5 GB | 5 GB | High accuracy |
 | `distil-large-v3` | 1.5 GB | 4 GB | Near-large-v3 accuracy, notably faster |
 | `large-v3-turbo` | 1.6 GB | 6 GB | OpenAI's 2024 pruned large model - ~8x faster than large-v3 for a small accuracy cost |
@@ -62,11 +62,11 @@ Multilingual alternative to Parakeet with built-in punctuation/casing and Englis
 |---|---|---|
 | `canary-1b-flash` | 4.0 GB | 6 GB |
 
-License: CC-BY-NC-4.0 (**non-commercial** — check before shipping a commercial product built on it).
+License: CC-BY-NC-4.0 (**non-commercial** - check before shipping a commercial product built on it).
 
 ### Vosk
 
-Pure-CPU, Kaldi-based recognizer with a tiny footprint. No AVX2 or GPU required — the right choice for very old or low-power hardware where even `tiny.en` is too slow.
+Pure-CPU, Kaldi-based recognizer with a tiny footprint. No AVX2 or GPU required - the right choice for very old or low-power hardware where even `tiny.en` is too slow.
 
 | Model | Approx. size |
 |---|---|
@@ -88,7 +88,7 @@ License: MIT.
 
 ## Optional transcript enrichment (post-processing LLM)
 
-Runs after transcription via `llama.cpp` (CPU-friendly, GPU-accelerated if available) to clean up punctuation/casing, generate summaries, or propose chapter titles. Entirely optional — never required for transcription itself. Fully wired into `podharvest/harvest.py`: enable with `settings --set enrichment_enabled=true`, and each transcribed episode gets a `<slug>.summary.md` alongside its transcript.
+Runs after transcription via `llama.cpp` (CPU-friendly, GPU-accelerated if available) to clean up punctuation/casing, generate summaries, or propose chapter titles. Entirely optional - never required for transcription itself. Fully wired into `podharvest/harvest.py`: enable with `settings --set enrichment_enabled=true`, and each transcribed episode gets a `<slug>.summary.md` alongside its transcript.
 
 | Model | Approx. size (Q4_K_M) | Min RAM | License |
 |---|---|---|---|
@@ -97,11 +97,11 @@ Runs after transcription via `llama.cpp` (CPU-friendly, GPU-accelerated if avail
 | **Nemotron-Mini 4B Instruct** | 2.6 GB | 5 GB | NVIDIA Open Model License |
 | Mistral 7B Instruct v0.3 | 4.4 GB | 8 GB | Apache-2.0 |
 
-**Windows note:** `llama-cpp-python` cannot be *built from source* on Windows in most environments — not because of a missing C++ compiler, but because its vendored `llama.cpp` source tree (which includes a full web UI) has paths deep enough to exceed Windows' default 260-character `MAX_PATH` limit, producing a confusing `OSError: [Errno 2] No such file or directory`. `podharvest.acquire.ensure_package` handles this automatically: for `llama-cpp-python` specifically, it installs the maintainer's prebuilt CPU wheel from `https://abetlen.github.io/llama-cpp-python/whl/cpu` first (no source build at all), falling back to a plain source build only if that ever becomes unavailable. This is live-tested and confirmed working end to end (model download → load → real generated summary → written to disk).
+**Windows note:** `llama-cpp-python` cannot be *built from source* on Windows in most environments - not because of a missing C++ compiler, but because its vendored `llama.cpp` source tree (which includes a full web UI) has paths deep enough to exceed Windows' default 260-character `MAX_PATH` limit, producing a confusing `OSError: [Errno 2] No such file or directory`. `podharvest.acquire.ensure_package` handles this automatically: for `llama-cpp-python` specifically, it installs the maintainer's prebuilt CPU wheel from `https://abetlen.github.io/llama-cpp-python/whl/cpu` first (no source build at all), falling back to a plain source build only if that ever becomes unavailable. This is live-tested and confirmed working end to end (model download → load → real generated summary → written to disk).
 
 ### A note on Megatron
 
-NVIDIA **Megatron-LM**/Megatron-Core is a *training* framework for large language models — it isn't a deployable model you can download and run, so it isn't offered as an engine option here. **Nemotron** models are Megatron-lineage models NVIDIA actually ships as deployable checkpoints, which is why Nemotron-Mini is in the enrichment catalogue above instead.
+NVIDIA **Megatron-LM**/Megatron-Core is a *training* framework for large language models - it isn't a deployable model you can download and run, so it isn't offered as an engine option here. **Nemotron** models are Megatron-lineage models NVIDIA actually ships as deployable checkpoints, which is why Nemotron-Mini is in the enrichment catalogue above instead.
 
 ## How acquisition works
 
@@ -113,13 +113,13 @@ NVIDIA **Megatron-LM**/Megatron-Core is a *training* framework for large languag
 4. A manifest is written recording the engine, model, source, license, and files, so subsequent runs skip re-downloading.
 5. **Verification, not just presence:** every cache hit is re-checked by `podharvest.acquire.verify_model()` before being trusted - GGUF files must start with the `GGUF` magic bytes, sherpa-onnx models must have all four required files above a minimum size, Vosk archives must have extracted a plausible number of files, and everything else must have every recorded file present and non-trivially sized. A corrupted or truncated cache is detected and automatically re-downloaded rather than silently reused.
 
-All progress is reported through `podharvest.progress.ProgressReporter` — the same throttled, percentage-based progress bar used for enclosure downloads.
+All progress is reported through `podharvest.progress.ProgressReporter` - the same throttled, percentage-based progress bar used for enclosure downloads.
 
 ## Validating accuracy, not just availability
 
 Downloading and running a model isn't the same as knowing it's *good enough* for your feed. `podharvest benchmark` (see `podharvest/benchmark.py` and `podharvest/accuracy.py`) transcribes the same audio with multiple engine/model combinations and reports:
 
-- **Speed** — real-time factor, measured directly (not estimated).
-- **Word Error Rate (WER) and accuracy** — computed via classic DP word-level alignment (the same family of metric used by academic ASR leaderboards), when you supply a reference transcript with `--reference`/`--reference-dir`.
+- **Speed** - real-time factor, measured directly (not estimated).
+- **Word Error Rate (WER) and accuracy** - computed via classic DP word-level alignment (the same family of metric used by academic ASR leaderboards), when you supply a reference transcript with `--reference`/`--reference-dir`.
 
 See [the benchmarking section](REFERENCE.md#validating-accuracy-and-comparing-models) for usage and a real example run.
