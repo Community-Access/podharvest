@@ -31,10 +31,15 @@ _PNG_1X1 = bytes.fromhex(
 )
 
 
-@pytest.fixture(scope="module")
-def app():
-    application = wx.App()
-    yield application
+@pytest.fixture
+def app(wx_app):
+    """The session-wide wx.App (see tests/conftest.py).
+
+    This module used to make its own. So did two others, and a process only
+    ever gets one -- whichever ran second left wx unusable for everything
+    after it.
+    """
+    return wx_app
 
 
 @pytest.fixture

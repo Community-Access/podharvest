@@ -16,14 +16,36 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
-from podharvest import DISPLAY_NAME, __version__
+from podharvest import DISPLAY_NAME, SUPPORT_EMAIL, __version__
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
 from podharvest.util import LOG, HarvestError, setup_logging
 
 PROG = "podharvest"
+
+#: The argument that means "everything after this belongs to pip". Shared with
+#: `acquire.PIP_SUBCOMMAND`, which is what builds the command line.
+PIP_PASSTHROUGH = "_pip"
+
+#: Where the frozen build keeps its unfrozen copy of pip, relative to the
+#: bundle root. Kept in step with PIP_RUNTIME_DIR in packaging/podharvest.spec.
+PIP_RUNTIME_DIR = "pip_runtime"
+
+
+def bundled_pip_dir() -> Path | None:
+    """The frozen build's plain-files pip, if this is a frozen build.
+
+    None in a source checkout, where the interpreter's own pip is used and
+    there is nothing to add to the path.
+    """
+    base = getattr(sys, "_MEIPASS", "")
+    if not base:
+        return None
+    candidate = Path(base) / PIP_RUNTIME_DIR
+    return candidate if (candidate / "pip").is_dir() else None
 
 EPILOG = """\
 examples:
@@ -152,6 +174,16 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Hugging Face token for the gated pyannote models.")
     _add_common(p_local)
 
+    p_doctor = sub.add_parser(
+        "doctor", help="Check what is downloaded and whether it actually runs.",
+        description="Report the app-space paths, whether FFmpeg is present, "
+                    "and for each transcription engine whether its packages "
+                    "are downloaded and whether they load. Use it to find out "
+                    "why a run will not transcribe, before starting one.")
+    p_doctor.add_argument("--engine", metavar="ENGINE",
+                          help="Only check this engine (default: all of them).")
+    _add_common(p_doctor)
+
     p_hw = sub.add_parser("hardware", help="Detect hardware and recommend an on-device transcription model.",
                            description="Probe CPU/RAM/GPU and print (or emit as JSON) the recommended ASR setup.")
     p_hw.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of a summary.")
@@ -259,6 +291,97 @@ def _cmd_local(args: argparse.Namespace) -> int:
         identify_speakers=settings.identify_speakers,
         hf_token=hf_token,
     )
+
+
+def _run_pip(argv: Sequence[str]) -> int:
+    """Hand *argv* straight to pip. Never reached in normal use.
+
+    The frozen build's `sys.executable` is podharvest.exe, not a Python
+    interpreter, so `sys.executable -m pip` reached this program's argument
+    parser instead of pip -- which is why every engine download in every
+    packaged copy failed with "invalid choice: 'pip'". `acquire.pip_command`
+    sends installs here instead.
+
+    Handled before argparse rather than as a subcommand because pip's own
+    flags (`--target`, `--index-url`, even `--help`) would otherwise be read
+    as podHarvest's. pip runs in this process, so it computes its wheel tags
+    from this interpreter and downloads builds this interpreter can import.
+    """
+    import runpy
+
+    # A frozen build has no interpreter pip to import, and the copy inside the
+    # archive cannot install anything (its vendored distlib cannot find a
+    # resource finder for PyInstaller's loader). The plain-files copy shipped
+    # beside the executable can, so it goes on the path first and any partly
+    # imported frozen pip is cleared out of the way.
+    runtime = bundled_pip_dir()
+    if runtime is not None:
+        sys.path.insert(0, str(runtime))
+        for name in [m for m in sys.modules if m == "pip" or m.startswith("pip.")]:
+            del sys.modules[name]
+
+    saved = sys.argv
+    sys.argv = ["pip", *argv]
+    try:
+        runpy.run_module("pip", run_name="__main__")
+    except SystemExit as exc:
+        return int(exc.code or 0)
+    except ImportError:
+        print("This build of podHarvest does not have pip bundled, so it "
+              "cannot install anything. Please report this with the version "
+              "number: it is a packaging fault.", file=sys.stderr)
+        return 2
+    finally:
+        sys.argv = saved
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Say what is present and what works. Returns 1 if anything is broken.
+
+    Written for pasting into a bug report: one fact per line, no decoration,
+    and the failing import\'s own error message rather than a summary of it.
+    """
+    from podharvest import acquire, media_health
+
+    app = _resolve_app(args)
+    settings = config_mod.load(app)
+
+    print(f"{DISPLAY_NAME} {__version__}")
+    print(f"Frozen build      : {'yes' if acquire.running_frozen() else 'no'}")
+    print(f"Python            : {sys.version.split()[0]}")
+    print(f"App space         : {app.root}")
+    print(f"Isolated packages : {app.python_packages_dir}")
+    pip_ok, pip_why = acquire.pip_available()
+    print(f"Can install       : {'yes' if pip_ok else 'no - ' + pip_why}")
+    health = media_health.check()
+    print(f"FFmpeg            : {'yes' if health.healthy else 'no'}")
+
+    engines = [args.engine] if args.engine else sorted(acquire.ENGINE_PACKAGES)
+    problems = 0
+    for engine in engines:
+        print()
+        print(f"Engine: {engine}")
+        reports = acquire.check_engine(app, engine)
+        if not reports:
+            print("  (no packages known for this engine)")
+            continue
+        for report in reports:
+            print(f"  {report.sentence()}")
+            if not report.ok:
+                problems += 1
+
+    print()
+    chosen = f"{settings.asr_engine}/{settings.asr_model}" if settings.asr_engine else "(none set)"
+    print(f"Selected model    : {chosen}")
+    if problems:
+        print(f"\n{problems} problem(s) found. Anything \"not downloaded yet\" is "
+              "fixed by running that engine once, or by Download model in the "
+              "app. Anything that \"will not load\" is a bug - please send this "
+              f"output to {SUPPORT_EMAIL}.")
+        return 1
+    print("\nNo problems found.")
+    return 0
 
 
 def _cmd_hardware(args: argparse.Namespace) -> int:
@@ -470,6 +593,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
 _HANDLERS = {
     "fetch": _cmd_fetch,
     "local": _cmd_local,
+    "doctor": _cmd_doctor,
     "hardware": _cmd_hardware,
     "gui": _cmd_gui,
     "info": _cmd_info,
@@ -498,6 +622,11 @@ def _maybe_offer_gui(args: argparse.Namespace) -> bool:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Before the parser, deliberately: see `_run_pip`.
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == PIP_PASSTHROUGH:
+        return _run_pip(raw[1:])
+
     parser = build_parser()
     args = parser.parse_args(argv)
 

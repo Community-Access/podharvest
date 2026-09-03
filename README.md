@@ -311,7 +311,35 @@ anywhere in the program. You do not have to remember the rest of this table — 
 The [accessibility statement](docs/ACCESSIBILITY.md) says plainly what has been tested and
 what has not. It is honest about the gaps rather than reassuring about them.
 
+## Is it going to work? Ask before you start
+
+The first run of any transcription model has to fetch two things: the engine's
+Python packages, and the model itself. Together that can be several minutes and
+a few gigabytes, and until now the only way to find out whether you had them was
+to start a run and wait.
+
+Beside the model description there is now a line that says plainly whether the
+selected model is **Ready**, or what is still missing, and a **Download model**
+button that fetches it there and then. Press it whenever you like: anything
+already downloaded is kept.
+
+From the command line, `podharvest doctor` answers the same question and more:
+
+```
+podharvest doctor                    # every engine
+podharvest doctor --engine vosk      # just one
+```
+
+It prints where everything lives, whether FFmpeg is present, whether podHarvest
+can install packages at all, and for each engine whether its packages are
+downloaded **and whether they actually load** — which are different questions.
+It is written to be pasted straight into a bug report.
+
 ## When something goes wrong
+
+**It says it cannot set up an engine.** Run `podharvest doctor`. It will say
+whether the problem is a missing download (fixable with **Download model**) or
+something that will not load (a bug — please send the output in).
 
 **It looks frozen.** It probably is not. Transcribing an hour of audio takes minutes. Check
 the **Episodes** list, which updates as it goes, and the percentage beside the progress bar.

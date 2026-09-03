@@ -27,6 +27,7 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
   - [Not doing the same work twice](#not-doing-the-same-work-twice)
 - [Supported on-device models](#supported-on-device-models)
 - [Validating accuracy and comparing models](#validating-accuracy-and-comparing-models)
+- [Checking an install](#checking-an-install)
 - [Settings reference](#settings-reference)
 - [Portable app space](#portable-app-space)
 - [Accessibility](#accessibility)
@@ -521,6 +522,89 @@ changing it would break something:
 | The repository URL | Already published |
 
 In code, `podharvest.DISPLAY_NAME` holds the spoken form so it is defined once.
+
+## Checking an install
+
+### `podharvest doctor`
+
+```
+podharvest doctor [--engine ENGINE]
+```
+
+Prints, in order: the version; whether this is a frozen build; the Python
+version; the app-space and isolated-package paths; whether pip can be reached
+at all; whether FFmpeg is present; and then, per engine, each package with one
+of three answers.
+
+| Answer | Meaning |
+|---|---|
+| `ready` | Downloaded and imports cleanly |
+| `not downloaded yet` | Run that engine once, or press **Download model** |
+| `downloaded but will not load - <error>` | A packaging bug. The error is the import's own words |
+
+Exit status is 1 if anything is wrong, so it is usable in a script. The third
+answer is the one worth reporting: it means a file is on disk, passes every
+filesystem check, and still cannot run.
+
+### Narrowing the model list
+
+The **Show models that run** group filters the picker: **All**, **On this
+machine**, **In the cloud**, or **Already downloaded**. The last is the quick
+way back to a model you have used before, with nothing to wait for.
+
+Each option is enabled on its own terms rather than the group as a whole, and
+the group itself stays disabled until hardware detection has found any model at
+all. **In the cloud** needs an API key; **Already downloaded** needs something
+to have been downloaded; **All** only means something once more than one source
+exists. An option that is offered and then cannot work is worse than one that is
+absent: by keyboard it is a stop that accepts your selection and then shows an
+empty list with nothing saying why. If a filter you are sitting on is switched
+off — a key removed, say — the selection moves rather than silently emptying the
+list.
+
+### In the GUI
+
+A line beside the model description says whether the selected model is ready,
+and names what is missing when it is not — the engine's packages and the model
+weights are separate downloads and either can be absent on its own. The
+**Download model** button fetches both, on a background thread, using the same
+calls a run makes so the two cannot disagree about what "downloaded" means.
+
+### What had to be fixed to make any of this work
+
+Three faults, each of which made on-demand downloads impossible in the packaged
+build while being invisible in a source checkout. They are recorded here
+because each is an easy mistake to make again.
+
+**`sys.executable` is not a Python interpreter in a frozen build.** It is
+`podharvest.exe`. `[sys.executable, "-m", "pip", ...]` therefore ran
+`podharvest.exe -m pip install ...`, which reached podHarvest's own argument
+parser and failed with `invalid choice: 'pip'` — logged as pip output, so it
+read as a pip problem. `acquire.pip_command` now branches on `sys.frozen` and
+the frozen build routes installs through a `_pip` passthrough handled before
+argparse (pip's own `--target` and `--index-url` would otherwise be eaten).
+
+**pip cannot be frozen.** Bundled into the PyInstaller archive it imports fine
+and then dies on the first install: its vendored `distlib` looks up a resource
+finder by the type of the loader that imported it, and PyInstaller's
+`FrozenImporter` is not a loader type it knows. pip is therefore shipped as
+plain files in `_internal/pip_runtime` and put on `sys.path` at the moment it
+is needed.
+
+**A frozen build is a host, not just a program.** It pip-installs
+faster-whisper, NeMo, Vosk and their dependencies into a folder PyInstaller's
+analysis never sees, and those packages import whatever they like. Two
+consequences: the whole standard library is bundled (`No module named
+'asyncio'`, reported against faster-whisper, was the first symptom), and
+`python3.dll` ships alongside `python313.dll` because wheels built against the
+limited API — PyAV, and so faster-whisper — link against the forwarder that
+CPython installs but PyInstaller does not.
+
+There is a fourth, smaller one. Python caches what it finds in each `sys.path`
+entry, and the isolated package folder goes on the path *before* the install,
+when it is empty. `importlib.invalidate_caches()` after installing is what
+stops a perfectly good install being reported as "installed but still not
+importable".
 
 ## Settings reference
 

@@ -13,14 +13,119 @@ import sys
 from pathlib import Path
 
 block_cipher = None
+
+# pip has to travel with the build. podHarvest installs the ASR engines on
+# demand at runtime, and in a frozen build sys.executable is podharvest.exe
+# rather than a Python interpreter -- so there is no pip on the machine to
+# borrow, and `podharvest _pip` (see cli._run_pip) has nothing to hand to.
+#
+# It is shipped as *plain files on disk* rather than frozen into the archive,
+# and that is not a stylistic choice. Frozen, pip imports fine and then dies
+# the moment it installs anything: its vendored distlib looks up a "finder"
+# for a package by the type of the loader that imported it, and PyInstaller's
+# FrozenImporter is not one of the loader types distlib knows, so it raises
+# `Unable to locate finder for 'pip._vendor.distlib'`. Loaded from a real
+# directory the loader is an ordinary SourceFileLoader and distlib is happy.
+# cli._run_pip puts this directory on sys.path before handing over.
+def _pip_tree():
+    """Every file of the build environment's pip, as (source, dest) pairs."""
+    import pip
+
+    root = Path(pip.__file__).resolve().parent
+    pairs = []
+    for item in root.rglob("*"):
+        if not item.is_file() or "__pycache__" in item.parts:
+            continue
+        dest = Path(PIP_RUNTIME_DIR) / "pip" / item.parent.relative_to(root)
+        pairs.append((str(item), str(dest)))
+    return pairs
+
+
+#: Where the unfrozen pip lands inside the build. Kept in step with
+#: `podharvest.cli.PIP_RUNTIME_DIR`, which is what looks for it.
+PIP_RUNTIME_DIR = "pip_runtime"
+pip_datas = _pip_tree()
+pip_binaries = []
+pip_hiddenimports = []
+
+
+def _stable_abi_dll():
+    """`python3.dll`, without which every abi3 wheel fails to load.
+
+    Packages built against the limited API -- PyAV, and a growing share of the
+    ecosystem -- link their extension against `python3.dll`, the forwarder
+    that redirects to the real `python313.dll`. A normal CPython install ships
+    both, so this never shows up in development. PyInstaller bundles only
+    `python313.dll`, so in the frozen build those wheels install perfectly and
+    then fail to import with "DLL load failed ... The specified module could
+    not be found" -- naming the extension, never the DLL it actually wanted.
+
+    That was faster-whisper's failure: it pulls in PyAV, and PyAV is abi3.
+    """
+    candidate = Path(sys.base_prefix) / "python3.dll"
+    if not candidate.is_file():
+        print(f"WARNING: {candidate} not found; abi3 wheels (PyAV, and so "
+              "faster-whisper) will not load in this build.")
+        return []
+    return [(str(candidate), ".")]
+
+
+abi3_binaries = _stable_abi_dll()
+
+
+#: Standard-library packages that are large, never needed by anything
+#: podHarvest installs, and in some cases actively unwanted in a frozen app.
+#: `test` and `tests` are not in `sys.stdlib_module_names` and so are never
+#: reached by the loop below; they are named anyway because a future Python
+#: could expose them and nothing here should ever ship a test suite.
+_STDLIB_SKIP = frozenset({
+    "antigravity", "this", "idlelib", "pydoc_data", "tkinter",
+    "turtle", "turtledemo", "test", "tests", "ensurepip", "venv",
+})
+
+
+def _whole_stdlib():
+    """Every standard-library module, as hidden imports.
+
+    Normally you would name the handful of modules a program uses and let
+    PyInstaller's analysis find the rest. That reasoning does not hold here,
+    because this program is a *host*: it pip-installs faster-whisper, NeMo,
+    Vosk and whatever those depend on at runtime, into a folder the analysis
+    never sees. Those packages import whatever they like from the standard
+    library, and anything not bundled is simply absent.
+
+    The symptom is misleading, too. faster-whisper installs cleanly and then
+    fails with `No module named 'asyncio'` -- reported against the engine,
+    which is not what is missing. Chasing them one at a time would be a slow
+    rediscovery of the standard library, so the whole thing ships.
+    """
+    from PyInstaller.utils.hooks import collect_submodules
+
+    names = []
+    for name in sorted(sys.stdlib_module_names):
+        if name.startswith("_") or name in _STDLIB_SKIP:
+            continue
+        names.append(name)
+        # Packages need their submodules named individually; a bare top-level
+        # import of `asyncio` does not bring `asyncio.events` with it.
+        try:
+            names.extend(collect_submodules(name))
+        except Exception:  # noqa: BLE001 - not importable on this platform
+            continue
+    return sorted(set(names))
+
+
+stdlib_hiddenimports = _whole_stdlib()
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821 - injected by PyInstaller
 
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
-    binaries=[],
-    datas=[],
+    binaries=[*pip_binaries, *abi3_binaries],
+    datas=[*pip_datas],
     hiddenimports=[
+        *pip_hiddenimports,
+        *stdlib_hiddenimports,
         "wx",
         "wx.adv",
         # wx.media backs the player. It is imported at the top of

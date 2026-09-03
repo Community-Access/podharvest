@@ -938,7 +938,7 @@ class MainFrame(wx.Frame):
                      "list; Ctrl+P plays one, Ctrl+Shift+T reads its "
                      "transcript, Ctrl+T edits its tags and chapters.",
                      len(episodes))
-        else:
+        elif self.source_mode() != "local":
             LOG.info("Nothing in %s yet. Paste a feed address above and press "
                      "Start.", output)
         self._on_episode_selected()
@@ -1594,6 +1594,7 @@ class MainFrame(wx.Frame):
         # Skipped while the window is still being built: the output folder
         # has not been read out of the settings yet, so a refresh then would
         # scan the wrong folder and say so in the log.
+        self._describe_output()
         if refresh:
             if local:
                 self.refresh_local_list()
@@ -1637,7 +1638,7 @@ class MainFrame(wx.Frame):
         library, so it never goes away.
         """
         box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Library folder")
-        holder = box.GetStaticBox()
+        self._output_holder = holder = box.GetStaticBox()
         grid = wx.FlexGridSizer(1, 3, 8, 8)
         grid.AddGrowableCol(1, 1)
 
@@ -1657,8 +1658,42 @@ class MainFrame(wx.Frame):
         grid.Add(self.output_ctrl, 1, wx.EXPAND)
         grid.Add(browse, 0)
 
+        # Where the output actually lands, in words, because "Output folder"
+        # answers a different question in each source and a box that means two
+        # things without saying which is worse than two boxes.
+        self.output_note = wx.StaticText(holder, label="")
+        set_accessible_name(self.output_note, "Where the output goes")
+        box.Add(self.output_note, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
         return box
+
+    def _describe_output(self) -> None:
+        """Say where this source's output goes, and label the box to match.
+
+        In local mode the feeds folder is not where anything lands -- the
+        transcript goes next to the audio -- and leaving a box labelled
+        "Library folder" as the only visible destination invited the
+        reasonable conclusion that podHarvest was about to write there.
+        """
+        local = self.source_mode() == "local"
+        beside = self.settings.local_transcripts_beside_file
+        if not local:
+            self._output_holder.SetLabel("Library folder")
+            self.output_note.SetLabel(
+                "Each podcast gets a folder here, with its audio, transcripts "
+                "and notes.")
+        elif beside:
+            self._output_holder.SetLabel("Library folder (feeds)")
+            self.output_note.SetLabel(
+                "Local files: each transcript is written next to its own audio "
+                "file, not here. This folder is only your harvested library, "
+                "which the Episodes list reads when the source is a feed.")
+        else:
+            self._output_holder.SetLabel("Library folder")
+            self.output_note.SetLabel(
+                'Local files: transcripts go into a "Local files" folder here, '
+                'because "Write transcripts beside the audio file" is turned '
+                "off in Settings.")
 
     def _build_options_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         box = wx.StaticBoxSizer(wx.HORIZONTAL, panel, "Options")
@@ -1699,12 +1734,22 @@ class MainFrame(wx.Frame):
         # cloud?" every single time.
         self.source_radio = wx.RadioBox(
             right_holder, label="Show models that run",
-            choices=["&All", "On this &machine", "In the c&loud"],
-            majorDimension=3, style=wx.RA_SPECIFY_COLS)
+            choices=["&All", "On this &machine", "In the c&loud",
+                     "Already &downloaded"],
+            majorDimension=4, style=wx.RA_SPECIFY_COLS)
         self.source_radio.SetToolTip(
-            "Which models the picker offers: everything, only those that run on this machine, "
-            "or only cloud ones. Cloud models need an API key and are disabled without one."
+            "Which models the picker offers: everything, only those that run "
+            "on this machine, only cloud ones, or only the ones already "
+            "downloaded here. \"Already downloaded\" is the quick way back to "
+            "a model you have used before, with nothing to wait for. Options "
+            "that cannot apply are switched off rather than offered and then "
+            "refused - cloud needs an API key, and Already downloaded needs "
+            "something to have been downloaded."
         )
+        # Nothing is known about this machine yet, so there is no honest
+        # choice to offer. It is switched on once hardware detection has said
+        # what is available -- see `_refresh_source_options`.
+        self.source_radio.Enable(False)
         set_accessible_name(self.source_radio, "Show models that run")
         self.source_radio.Bind(wx.EVT_RADIOBOX, self._on_source_changed)
 
@@ -1730,6 +1775,23 @@ class MainFrame(wx.Frame):
             "have loaded, measured on this machine where possible. Read-only."
         )
         set_accessible_name(self.model_info, "About the selected model")
+
+        # Whether this model can actually run, answered before you press Start
+        # rather than several minutes into a run. A model is two separate
+        # downloads -- the engine's Python packages and the model weights --
+        # and either can be missing, so the readout names which.
+        self.model_ready = wx.StaticText(right_holder, label="Checking...")
+        set_accessible_name(self.model_ready, "Whether this model is ready")
+        self.download_btn = wx.Button(right_holder, label="&Download model")
+        self.download_btn.SetToolTip(
+            "Fetches everything the selected model needs -- the engine's "
+            "Python packages and the model itself -- so the first run does not "
+            "stop to do it. Safe to press at any time: anything already here "
+            "is kept, and nothing else is touched. It can take several minutes "
+            "and a few gigabytes on a first run."
+        )
+        self.download_btn.Bind(wx.EVT_BUTTON, self._on_download_model)
+
         self.chk_timestamps = wx.CheckBox(right_holder, label="&Include timestamps")
         self.chk_timestamps.SetToolTip(
             "Puts a clock time against each line of the transcript, so a passage can be found "
@@ -1803,6 +1865,12 @@ class MainFrame(wx.Frame):
         right_box.Add(self.model_choice, 0, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(wx.StaticText(right_holder, label="About this model:"), 0, wx.BOTTOM, 2)
         right_box.Add(self.model_info, 1, wx.EXPAND | wx.BOTTOM, 6)
+        # Label before button, so a screen reader reaches the sentence that
+        # explains why the button is there before it reaches the button.
+        ready_row = wx.BoxSizer(wx.HORIZONTAL)
+        ready_row.Add(self.model_ready, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        ready_row.Add(self.download_btn, 0)
+        right_box.Add(ready_row, 0, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(self.chk_chapters, 0, wx.BOTTOM, 4)
         right_box.Add(self.chk_chapters_audio, 0, wx.LEFT | wx.BOTTOM, 18)
         right_box.Add(self.chk_timestamps, 0, wx.BOTTOM, 4)
@@ -1952,8 +2020,10 @@ class MainFrame(wx.Frame):
         self.player.set_skip_steps(
             self.settings.skip_back_ms, self.settings.skip_forward_ms)
         self.player.set_rates(self.settings.playback_rates)
-        # Where local transcripts go decides what the list says each file
-        # already has, so it is rebuilt rather than left saying the old answer.
+        # Where local transcripts go decides both what the list says each file
+        # already has and what the Library folder box means, so both are
+        # rebuilt rather than left saying the old answer.
+        self._describe_output()
         if self.source_mode() == "local":
             self.refresh_local_list()
         # A key may have just been added or removed, which changes whether the
@@ -1979,11 +2049,14 @@ class MainFrame(wx.Frame):
     def _on_toggle_transcribe(self, _evt) -> None:
         on = self.chk_transcribe.GetValue()
         self._set_enabled(self._transcript_controls, on, fallback=self.chk_transcribe)
-        # The source picker is only usable when transcription is on *and* a
-        # cloud key exists, so it is never simply re-enabled here.
-        self._set_enabled([self.source_radio],
-                          on and bool(getattr(self, "_cloud_models", [])),
-                          fallback=self.chk_transcribe)
+        # The source picker has its own per-option rules -- a cloud key, and
+        # something actually downloaded -- so it is re-decided rather than
+        # simply switched back on. If it ends up disabled while it had focus,
+        # focus has to go somewhere: back to the checkbox that turned it off.
+        had_focus = self.source_radio.HasFocus()
+        self._refresh_source_options()
+        if had_focus and not self.source_radio.IsEnabled():
+            self.chk_transcribe.SetFocus()
         # These have their own conditions on top of this one, so re-apply them
         # or they end up enabled while their parent is off.
         self._on_toggle_timestamp_style(None)
@@ -2005,39 +2078,98 @@ class MainFrame(wx.Frame):
 
     # -- model picker -----------------------------------------------------
 
-    _SOURCES = ("all", "local", "cloud")
+    _SOURCES = ("all", "local", "cloud", "downloaded")
 
     def _refresh_cloud_availability(self) -> None:
-        """Enable the source picker only when a cloud model could actually run.
-
-        Without a key there is exactly one possible answer, so the control is
-        disabled rather than left as a dead stop in the tab order.
-        """
+        """Work out which cloud models could run, then re-offer the choices."""
         from podharvest import cloud as cloud_mod
         self._cloud_models = cloud_mod.available_cloud_models(self.app_space, kind="asr")
-        available = bool(self._cloud_models)
-        self.source_radio.Enable(available and self.chk_transcribe.GetValue())
-        if not available:
-            # Local is the only truthful answer, so say so rather than leaving
-            # a stale "cloud" selection pointing at nothing.
-            self.source_radio.SetSelection(self._SOURCES.index("local"))
-            self.source_radio.SetToolTip(
-                "Add an OpenAI or Google Gemini API key in Settings to use cloud models. "
-                "Until then everything runs on this machine.")
+        self._refresh_source_options()
+
+    def _refresh_source_options(self) -> None:
+        """Offer only the filters that could return something.
+
+        Each option is switched on or off individually rather than the group
+        as a whole. An option that is present but cannot work is worse than one
+        that is absent: by keyboard it is a stop that accepts the selection and
+        then shows an empty model list, with nothing saying why.
+
+        The group itself stays off until hardware detection has found any model
+        at all, because before that every option is equally meaningless.
+        """
+        cloud = list(getattr(self, "_cloud_models", []))
+        local = list(getattr(self, "_local_models", []))
+        transcribing = self.chk_transcribe.GetValue()
+        downloaded = self._downloaded_models() if local else []
+
+        # There is nothing to filter until something is known.
+        self.source_radio.Enable(bool(local or cloud) and transcribing)
+
+        self.source_radio.EnableItem(self._SOURCES.index("local"), bool(local))
+        self.source_radio.EnableItem(self._SOURCES.index("cloud"), bool(cloud))
+        self.source_radio.EnableItem(
+            self._SOURCES.index("downloaded"), bool(downloaded))
+        # "All" is only a distinct answer when there is more than one source.
+        self.source_radio.EnableItem(
+            self._SOURCES.index("all"), bool(local and cloud))
+
+        # A selection that has just been switched off would silently filter the
+        # list to nothing, so move off it rather than leaving it standing.
+        if not self.source_radio.IsItemEnabled(self.source_radio.GetSelection()):
+            fallback = "local" if local else ("cloud" if cloud else "all")
+            self.source_radio.SetSelection(self._SOURCES.index(fallback))
+
+        parts = []
+        if cloud:
+            names = ", ".join(sorted({c.provider for c in cloud}))
+            parts.append(f"Cloud models are available for: {names}.")
         else:
-            names = ", ".join(sorted({c.provider for c in self._cloud_models}))
-            self.source_radio.SetToolTip(f"Cloud models are available for: {names}.")
+            parts.append(
+                "Add an OpenAI or Google Gemini API key in Settings to use "
+                "cloud models. Until then everything runs on this machine.")
+        if downloaded:
+            parts.append(
+                f"{len(downloaded)} model(s) are already downloaded here; "
+                "\"Already downloaded\" narrows the list to those, which start "
+                "with nothing to wait for.")
+        else:
+            parts.append(
+                "Nothing is downloaded yet, so \"Already downloaded\" is off. "
+                "Use Download model, or just start a run.")
+        self.source_radio.SetToolTip(" ".join(parts))
+
+    def _downloaded_models(self) -> list:
+        """Every on-device model whose weights are already here.
+
+        Cloud models are excluded on purpose: there is nothing to download for
+        them, so calling them "downloaded" would be answering a different
+        question from the one asked.
+        """
+        from podharvest import acquire
+
+        found = []
+        for choice in self._local_models:
+            try:
+                if acquire.is_downloaded(self.app_space, choice):
+                    found.append(choice)
+            except Exception:  # noqa: BLE001 - an unreadable manifest is "no"
+                continue
+        return found
 
     def _visible_models(self) -> list:
         source = self._SOURCES[self.source_radio.GetSelection()]
         local = list(self._local_models)
         cloud = list(getattr(self, "_cloud_models", []))
-        if not cloud or not self.source_radio.IsEnabled():
+        if not self.source_radio.IsEnabled():
             return local
+        if source == "downloaded":
+            return self._downloaded_models()
         if source == "local":
             return local
         if source == "cloud":
             return cloud
+        if not cloud:
+            return local
         return local + cloud
 
     def _populate_models(self, prefer: tuple[str, str] | None = None) -> None:
@@ -2087,13 +2219,111 @@ class MainFrame(wx.Frame):
             self.model_info.SetValue(
                 "No transcription model is available yet. Hardware detection may still "
                 "be running.")
+            self.model_ready.SetLabel("No model selected.")
+            self.download_btn.Enable(False)
             return
         text = estimate_mod.describe_model(choice, self._estimated_audio_seconds,
                                            getattr(self, "_hw", None), self.app_space)
         self.model_info.SetValue(text)
+        self._refresh_model_ready()
         # The first line is the model name; keep the caret at the top so a
         # screen reader starts reading from the beginning.
         self.model_info.SetInsertionPoint(0)
+
+    def _model_readiness(self, choice) -> tuple[bool, str]:
+        """Whether *choice* can run right now, and a sentence saying so.
+
+        Two separate things have to be present and either can be missing on its
+        own: the engine's Python packages, and the model weights. Naming which
+        one is absent is the difference between "press Download" and a support
+        email. Cloud models need neither -- they need a key, which the key test
+        in Settings answers.
+        """
+        from podharvest import acquire
+
+        if getattr(choice, "is_cloud", False):
+            return True, ("This is a cloud model: nothing to download. It needs "
+                          "an API key, which Settings can test.")
+        missing = acquire.engine_packages_missing(self.app_space, choice.engine)
+        weights = acquire.is_downloaded(self.app_space, choice)
+        if not missing and weights:
+            return True, f"Ready: {choice.model} is downloaded and can run now."
+
+        wants = []
+        if missing:
+            wants.append("the " + choice.engine + " engine")
+        if not weights:
+            wants.append("the model itself")
+        return False, ("Not downloaded yet: podHarvest still needs "
+                       + " and ".join(wants)
+                       + ". Press Download model, or just press Start and it "
+                         "will fetch them first.")
+
+    def _refresh_model_ready(self) -> None:
+        """Update the readiness line for whatever is selected now."""
+        choice = self._selected_model()
+        if choice is None:
+            self.model_ready.SetLabel("No model selected.")
+            self.download_btn.Enable(False)
+            return
+        running = self._worker is not None and self._worker.is_alive()
+        ready, sentence = self._model_readiness(choice)
+        self.model_ready.SetLabel(sentence)
+        self.download_btn.Enable(not ready and not running)
+
+    def _on_download_model(self, _evt=None) -> None:
+        """Fetch the selected model's packages and weights, on a worker thread.
+
+        Deliberately the same calls a run makes, so pressing this and pressing
+        Start cannot end up with different ideas of what "downloaded" means.
+        """
+        choice = self._selected_model()
+        if choice is None:
+            return
+        if self._worker is not None and self._worker.is_alive():
+            LOG.info("Something is already running; wait for it to finish.")
+            return
+        self.download_btn.Disable()
+        self.start_btn.Disable()
+        self.model_ready.SetLabel(f"Downloading {choice.model}...")
+        LOG.info("Downloading everything %s needs. This is a one-time cost and "
+                 "can take several minutes.", choice.model)
+        self._worker = threading.Thread(
+            target=self._run_download_worker, args=(choice,), daemon=True)
+        self._worker.start()
+
+    def _run_download_worker(self, choice) -> None:
+        from podharvest import acquire
+
+        ok = True
+        try:
+            if not acquire.ensure_engine_packages(self.app_space, choice.engine):
+                ok = False
+                LOG.error("Could not set up the %s engine. The lines above say "
+                          "why. Nothing was changed.", choice.engine)
+            else:
+                acquire.acquire_asr_model(self.app_space, choice)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the log pane
+            ok = False
+            LOG.exception("The download stopped with an error: %s", exc)
+        finally:
+            wx.CallAfter(self._finish_download, ok, choice)
+
+    def _finish_download(self, ok: bool, choice) -> None:
+        self._worker = None
+        self.start_btn.Enable()
+        self._refresh_model_ready()
+        # Something just became downloaded, which can turn "Already
+        # downloaded" from an impossible filter into a useful one.
+        self._refresh_source_options()
+        if ok:
+            LOG.info("%s is ready. Press Start when you are.", choice.model)
+        # Focus goes back to the button that started this, which is where it
+        # was: a download that finishes silently with focus somewhere else is
+        # a download nobody knows finished.
+        target = self.start_btn if ok else self.download_btn
+        if target.IsEnabled():
+            target.SetFocus()
 
     def _on_browse_output(self, _evt) -> None:
         with wx.DirDialog(self, "Choose an output folder", defaultPath=self.output_ctrl.GetValue()) as dlg:
@@ -2230,6 +2460,8 @@ class MainFrame(wx.Frame):
         self._hw = hw
         self._local_models = hardware_mod.available_models(hw)
         self._recommended = hardware_mod.recommend_model(hw)
+        # Now that the machine's models are known there is something to
+        # filter, so the picker can finally offer honest choices.
         self._refresh_cloud_availability()
         saved = (self.settings.asr_engine, self.settings.asr_model)
         self._populate_models(prefer=saved if saved != ("", "") else None)
@@ -2420,6 +2652,7 @@ class MainFrame(wx.Frame):
 
     def _finish_worker(self) -> None:
         self.start_btn.Enable()
+        self._refresh_model_ready()
         for btn in self._local_buttons:
             btn.Enable()
         self._menu_cancel.Enable(False)

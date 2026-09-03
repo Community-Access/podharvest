@@ -135,11 +135,10 @@ class TestFallbacks:
 
 
 class TestTheReader:
-    @pytest.fixture(scope="class")
-    def app(self):
-        wx = pytest.importorskip("wx")
-        application = wx.App()
-        yield application
+    @pytest.fixture
+    def app(self, wx_app):
+        """The session-wide wx.App -- see tests/conftest.py."""
+        return wx_app
 
     @pytest.fixture
     def transcript(self, tmp_path):

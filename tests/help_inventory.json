@@ -46,6 +46,7 @@
   "gui.py::_build_local_box::wx.Button": "helped",
   "gui.py::_build_local_settings::wx.CheckBox": "helped",
   "gui.py::_build_local_settings::wx.CheckBox#2": "helped",
+  "gui.py::_build_options_box::wx.Button": "helped",
   "gui.py::_build_options_box::wx.CheckBox": "helped",
   "gui.py::_build_options_box::wx.CheckBox#2": "helped",
   "gui.py::_build_options_box::wx.CheckBox#3": "helped",

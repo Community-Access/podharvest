@@ -326,7 +326,7 @@ def run_local(paths: Iterable[Path], *, app: AppSpace, settings=None,
             progress_callback(100.0)
         return 0
 
-    transcribe_all(
+    transcribed = transcribe_all(
         episodes, output_dir / LOCAL_FOLDER_NAME, app=app, settings=settings,
         model=model, include_timestamps=include_timestamps,
         identify_speakers=identify_speakers, hf_token=hf_token,
@@ -336,5 +336,10 @@ def run_local(paths: Iterable[Path], *, app: AppSpace, settings=None,
     )
     if progress_callback:
         progress_callback(100.0)
+    if not transcribed:
+        LOG.warning("Nothing was transcribed, so your files are exactly as "
+                    "they were. They are still listed: you can play them and "
+                    "edit their tags and chapters without transcribing.")
+        return 1
     LOG.info("All done.")
     return 0

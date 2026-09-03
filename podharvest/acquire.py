@@ -17,6 +17,7 @@ downloads, checksum-friendly manifests, and graceful fallbacks:
 
 from __future__ import annotations
 
+import importlib
 import json
 import subprocess
 import sys
@@ -154,6 +155,144 @@ class AcquisitionResult:
     files: list[str]
 
 
+#: The hidden subcommand the frozen build uses to reach pip. See
+#: `pip_command` for why it has to exist at all.
+PIP_SUBCOMMAND = "_pip"
+
+
+def running_frozen() -> bool:
+    """Whether this is the PyInstaller build rather than a source checkout."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def pip_available() -> tuple[bool, str]:
+    """Whether pip can be reached at all, and a sentence saying why not.
+
+    In a source checkout pip lives in the interpreter running podHarvest. In
+    the frozen build it is bundled, and its absence means the build was made
+    without it -- which is worth saying plainly, because the symptom otherwise
+    is every model download failing for no visible reason.
+    """
+    if running_frozen():
+        # The frozen build ships pip as plain files beside the executable
+        # rather than importing it, so `import pip` here would answer the
+        # wrong question -- see `cli.bundled_pip_dir`.
+        from podharvest.cli import bundled_pip_dir
+
+        if bundled_pip_dir() is None:
+            return False, (
+                "This build of podHarvest was made without pip bundled, so it "
+                "cannot download the transcription engines. Please report this "
+                "with the version number - it is a packaging fault, not "
+                "something you can fix from here."
+            )
+        return True, ""
+
+    try:
+        import pip  # noqa: F401
+    except ImportError:
+        return False, (
+            "pip is not available in the Python running podHarvest, so extra "
+            "packages cannot be installed. Install pip, or use a Python that "
+            "has it."
+        )
+    return True, ""
+
+
+def pip_command(target: str, extra_args: list[str], pip_name: str) -> list[str]:
+    """The command line that installs *pip_name* into *target*.
+
+    Frozen builds are the whole reason this is a function. `sys.executable` is
+    normally the Python interpreter, so `-m pip` reaches pip -- but in the
+    PyInstaller build it is `podharvest.exe`, which is not an interpreter, and
+    `-m pip` reached podHarvest's own argument parser instead. The result was
+    an argparse error logged as pip output, every install failing with exit 2,
+    and transcription quietly unavailable in every packaged copy. So the frozen
+    build calls a hidden subcommand that hands straight to pip.
+    """
+    arguments = ["install", "--target", target, "--no-warn-script-location",
+                 "--disable-pip-version-check", *extra_args, pip_name]
+    if running_frozen():
+        return [sys.executable, PIP_SUBCOMMAND, *arguments]
+    return [sys.executable, "-m", "pip", *arguments]
+
+
+def is_importable(import_name: str) -> bool:
+    """Whether *import_name* can be imported right now."""
+    try:
+        __import__(import_name.split(".")[0])
+    except ImportError:
+        return False
+    return True
+
+
+def missing_packages(app: AppSpace, packages: list[tuple[str, str]]) -> list[str]:
+    """The pip names in *packages* that are not importable yet."""
+    app.activate()
+    return [pip_name for pip_name, import_name in packages
+            if not is_importable(import_name)]
+
+
+def engine_packages_missing(app: AppSpace, engine: str) -> list[str]:
+    """What *engine* still needs downloading. Empty means it is ready to run."""
+    return missing_packages(app, ENGINE_PACKAGES.get(engine, []))
+
+
+def diarization_packages_missing(app: AppSpace, backend: str) -> list[str]:
+    """What speaker identification still needs. Empty means ready."""
+    return missing_packages(app, DIARIZATION_PACKAGES.get(backend, []))
+
+
+@dataclass
+class PackageReport:
+    """One package: is it there, does it import, and if not, why not."""
+
+    pip_name: str
+    import_name: str
+    installed: bool
+    importable: bool
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.importable
+
+    def sentence(self) -> str:
+        if self.importable:
+            return f"{self.pip_name}: ready"
+        if not self.installed:
+            return f"{self.pip_name}: not downloaded yet"
+        return f"{self.pip_name}: downloaded but will not load - {self.error}"
+
+
+def check_package(app: AppSpace, pip_name: str, import_name: str) -> PackageReport:
+    """Try the import for real and report exactly what happened.
+
+    "Installed" and "usable" are different questions and the gap between them
+    is where the hard failures live -- a wheel whose native library will not
+    load is on disk, passes any file check, and still cannot run. So this
+    imports it, and keeps the error when it cannot.
+    """
+    app.activate()
+    importlib.invalidate_caches()
+    top_level = import_name.split(".")[0]
+    installed = any((Path(entry) / top_level).exists()
+                    or (Path(entry) / f"{top_level}.py").exists()
+                    for entry in (str(app.python_packages_dir),))
+    try:
+        __import__(top_level)
+    except Exception as exc:  # noqa: BLE001 - any failure is a failure to report
+        return PackageReport(pip_name, import_name, installed, False,
+                             f"{type(exc).__name__}: {exc}")
+    return PackageReport(pip_name, import_name, True, True)
+
+
+def check_engine(app: AppSpace, engine: str) -> list[PackageReport]:
+    """Every package *engine* needs, each answered honestly."""
+    return [check_package(app, pip_name, import_name)
+            for pip_name, import_name in ENGINE_PACKAGES.get(engine, [])]
+
+
 def ensure_package(app: AppSpace, pip_name: str, import_name: str) -> bool:
     """Import `import_name`, installing `pip_name` into the isolated
     pydeps folder on first use. Returns True if it is importable afterward.
@@ -173,6 +312,11 @@ def ensure_package(app: AppSpace, pip_name: str, import_name: str) -> bool:
     except ImportError:
         pass
 
+    ok, why = pip_available()
+    if not ok:
+        LOG.error("Cannot install '%s'. %s", pip_name, why)
+        return False
+
     target = str(app.python_packages_dir)
     strategies = PIP_INSTALL_STRATEGIES.get(pip_name, [[]])
     last_output = ""
@@ -180,8 +324,7 @@ def ensure_package(app: AppSpace, pip_name: str, import_name: str) -> bool:
         label = "prebuilt wheel" if extra_args else "standard"
         LOG.info("Setting up '%s'. This is a one-time download (into %s; try %d of %d, %s)...",
                  pip_name, target, i + 1, len(strategies), label)
-        cmd = [sys.executable, "-m", "pip", "install", "--target", target,
-               "--no-warn-script-location", "--disable-pip-version-check", *extra_args, pip_name]
+        cmd = pip_command(target, list(extra_args), pip_name)
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True)
         except OSError as exc:
@@ -200,11 +343,20 @@ def ensure_package(app: AppSpace, pip_name: str, import_name: str) -> bool:
         _log_install_failure(pip_name, last_output)
         return False
 
+    # Python caches what it found (or did not find) in each sys.path entry.
+    # pydeps was on the path before the install and was empty or absent then,
+    # so without this the freshly written package is invisible and a perfectly
+    # good install is reported as "installed but still not importable".
+    importlib.invalidate_caches()
+    app.activate()
     try:
         __import__(top_level)
         return True
     except ImportError as exc:
-        LOG.error("%s installed but still not importable: %s", pip_name, exc)
+        LOG.error("%s installed into %s but still could not be imported: %s. "
+                  "This usually means the wheel was built for a different "
+                  "Python than the one running podHarvest.",
+                  pip_name, target, exc)
         return False
 
 

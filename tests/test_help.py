@@ -101,12 +101,12 @@ class TestComposition:
 
 
 class TestTheWxHalf:
-    @pytest.fixture(scope="class")
-    def app(self):
+    @pytest.fixture
+    def app(self, wx_app):
+        """The session-wide wx.App -- see tests/conftest.py."""
         wx = pytest.importorskip("wx")
-        application = wx.App()
         help_mod.ensure_help_provider(wx)
-        yield application
+        return wx_app
 
     def test_the_help_provider_makes_set_help_text_live(self, app):
         """Without a provider every SetHelpText stores nothing and says so to nobody."""
@@ -208,11 +208,10 @@ class TestReadableSizing:
     people who turned the scaling up.
     """
 
-    @pytest.fixture(scope="class")
-    def app(self):
-        wx = pytest.importorskip("wx")
-        application = wx.App()
-        yield application
+    @pytest.fixture
+    def app(self, wx_app):
+        """The session-wide wx.App -- see tests/conftest.py."""
+        return wx_app
 
     def test_a_box_is_tall_enough_for_the_lines_asked_for(self, app):
         wx = pytest.importorskip("wx")

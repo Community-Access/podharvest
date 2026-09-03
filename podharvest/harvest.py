@@ -273,7 +273,7 @@ def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
                    progress_callback: Callable[[float], None] | None = None,
                    episode_callback: Callable[[EpisodeProgress], None] | None = None,
                    download_pct_share: float = 0.0,
-                   layout: Callable[[object], tuple[Path, str]] | None = None) -> None:
+                   layout: Callable[[object], tuple[Path, str]] | None = None) -> bool:
     """Transcribe a batch of episodes, reporting progress as it goes.
 
     Pulled out of `run_harvest` so the local-files route can use it unchanged.
@@ -291,6 +291,10 @@ def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
     *download_pct_share* is how much of the overall progress bar was already
     spent downloading, so the caller's bar carries on from where it was rather
     than restarting. Local files have nothing to download, so it is 0.
+
+    Returns False when transcription could not start at all -- no engine, no
+    packages, no model. The caller needs to know: a run that transcribed
+    nothing must not be reported as finished.
     """
     hw = hardware_mod.probe()
     choice = model or _resolve_model(settings, hw)
@@ -305,7 +309,11 @@ def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
         LOG.info("Making transcripts with %s, running on the %s.", choice.model,
                  "CPU" if hw.accelerator == "cpu" else hw.accelerator.upper())
     if not cloud_run and not ensure_engine_packages(app, choice.engine):
-        LOG.error("Could not install packages for engine '%s'; skipping transcription.", choice.engine)
+        LOG.error(
+            "Nothing was transcribed: the '%s' engine could not be set up. "
+            "The lines above say why. Nothing else was attempted, and no "
+            "files were changed.", choice.engine)
+        return False
     else:
         if cloud_run and identify_speakers and choice.speakers_built_in:
             # The model labels speakers itself, so the separate diarization
@@ -354,12 +362,17 @@ def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
         # that episode's, not the whole run's.
         started_at: dict[int, float] = {}
         counter_lock = threading.Lock()
+        # What each file ended as, so the run can say how it went rather than
+        # announcing "All done." over a pile of failures.
+        outcomes: list[str] = []
 
         def overall() -> float:
             units = done + sum(partial.values())
             return 100.0 * download_pct_share + 100.0 * (1 - download_pct_share) * units / total
 
         def report(n: int, ep, state: str, percent: float, detail: str) -> None:
+            if state in {"done", "failed", "skipped"}:
+                outcomes.append(state)
             now = time.monotonic()
             with counter_lock:
                 nonlocal done
@@ -435,6 +448,20 @@ def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
                     except Exception as exc:  # noqa: BLE001
                         LOG.error("Could not transcribe '%s': %s", ep.title, exc)
                         report(n, ep, "failed", 100.0, str(exc))
+    # A tally, because "All done." over a pile of failures is not a true
+    # sentence. One bad file must not end a run -- but it must be counted.
+    failed = outcomes.count("failed")
+    finished = outcomes.count("done")
+    if failed and not finished:
+        LOG.error("None of the %d file(s) could be transcribed. The lines "
+                  "above say why for each.", failed)
+    elif failed:
+        LOG.warning("%d of %d transcribed; %d failed. The lines above say why "
+                    "for each failure.", finished, finished + failed, failed)
+
+    # Explicit rather than falling off the end: an implicit None here is falsy,
+    # and would have reported every successful run as having produced nothing.
+    return finished > 0 or not failed
 
 
 def run_harvest(url: str, *, app: AppSpace, settings: config_mod.Settings | None = None,
@@ -492,8 +519,9 @@ def run_harvest(url: str, *, app: AppSpace, settings: config_mod.Settings | None
     elif progress_callback:
         progress_callback(100.0 * download_pct_share)
 
+    transcribed = True
     if transcribe and not (cancel_event and cancel_event.is_set()):
-        transcribe_all(
+        transcribed = transcribe_all(
             feed.episodes, feed_dir, app=app, settings=settings, model=model,
             include_timestamps=include_timestamps,
             identify_speakers=identify_speakers, hf_token=hf_token,
@@ -503,5 +531,10 @@ def run_harvest(url: str, *, app: AppSpace, settings: config_mod.Settings | None
         )
     if progress_callback:
         progress_callback(100.0)
+    if not transcribed:
+        # The feed was still fetched, rendered and downloaded, so say what did
+        # happen rather than implying the whole run failed.
+        LOG.warning("Finished without transcripts. Everything else is in %s", feed_dir)
+        return 1
     LOG.info("All done. Everything is in %s", feed_dir)
     return 0

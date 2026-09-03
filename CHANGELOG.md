@@ -9,7 +9,63 @@ First public release.
 <!-- Everything below was folded into 1.0.0 rather than shipped as a
      separate version, at the maintainer's direction. -->
 
+### Fixed
+
+- **Transcription could not work at all in the packaged build.** Every attempt
+  to set up an engine failed with `invalid choice: 'pip'`, and the run reported
+  only "skipping transcription". Four separate faults, none of which are
+  reproducible in a source checkout:
+  - `sys.executable` is `podharvest.exe` in a frozen build, not a Python
+    interpreter, so `-m pip` reached podHarvest's own argument parser. Installs
+    now route through a `_pip` passthrough handled before argparse.
+  - pip cannot be frozen: its vendored `distlib` cannot find a resource finder
+    for PyInstaller's loader, so it imports and then dies on the first install.
+    It now ships as plain files beside the executable.
+  - The standard library was bundled only as far as podHarvest's own imports
+    reached, but the build *hosts* pip-installed packages that import anything
+    they like -- so faster-whisper failed with `No module named 'asyncio'`. The
+    whole standard library now ships.
+  - `python3.dll` was missing. Wheels built against the limited API (PyAV, and
+    so faster-whisper) link against it; CPython installs it, PyInstaller did
+    not. They installed cleanly and failed to import with "DLL load failed ...
+    The specified module could not be found", naming the extension rather than
+    the DLL it wanted.
+- **A good install could be reported as a failure.** The isolated package
+  folder goes on `sys.path` before the install, when it is empty, and Python
+  caches that. Without `importlib.invalidate_caches()` afterwards the new
+  package was invisible: "installed but still not importable", with the files
+  plainly on disk.
+- **A run that transcribed nothing said "All done."** `transcribe_all` now
+  reports whether it ran, counts outcomes, and says "None of the N file(s)
+  could be transcribed" or "N of M transcribed; K failed" instead. The local
+  route adds that your files are untouched and still playable and editable.
+- **The empty-library advice appeared in Local files mode**, telling you to
+  paste a feed address when a feed was not what you were working on. The
+  Library folder box now says what it actually means for the source you are
+  on -- and that local transcripts are written next to the audio, not there.
+- **The test suite was order-dependent.** Three test modules each created their
+  own `wx.App`; a process only ever gets one, and under a shuffled order the
+  second attempt left failures reported against modules with no user interface
+  at all. One shared session fixture now.
+
 ### Added
+- **Know whether a model will work before you start it.** A line beside the
+  model description says whether the selected model is ready, or names what is
+  still missing -- the engine's packages and the model weights are separate
+  downloads and either can be absent on its own -- and a **Download model**
+  button fetches them on the spot, using the same calls a run makes.
+- **An "Already downloaded" filter** on the model picker, so getting back to a
+  model you have used before does not mean reading the whole list. Each filter
+  is now enabled on its own terms -- cloud needs an API key, "Already
+  downloaded" needs something downloaded, "All" needs more than one source --
+  and the group stays dark until hardware detection has found anything at all.
+  A filter you are sitting on that stops applying moves the selection rather
+  than silently emptying the list.
+- **`podharvest doctor`**, which answers the same question from the command
+  line and more: where everything lives, whether FFmpeg is there, whether
+  packages can be installed at all, and per engine whether each package is
+  downloaded *and whether it actually loads*. Written to be pasted into a bug
+  report; exits 1 if anything is wrong.
 
 - **A second source: audio you already have.** A **Source** radio box at the
   top of the main window switches between **Podcast feed** and **Local**
