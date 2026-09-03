@@ -358,7 +358,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"FFmpeg            : {'yes' if health.healthy else 'no'}")
 
     engines = [args.engine] if args.engine else sorted(acquire.ENGINE_PACKAGES)
-    problems = 0
+    # Two very different findings, and conflating them was misleading. An
+    # engine you have never used is *not downloaded*, which is the normal
+    # state of every engine you did not choose -- counting that as a problem
+    # reported six failures on a perfectly healthy install. Only something
+    # that is downloaded and will not load is actually wrong.
+    broken = 0
+    absent = 0
     for engine in engines:
         print()
         print(f"Engine: {engine}")
@@ -368,19 +374,27 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             continue
         for report in reports:
             print(f"  {report.sentence()}")
-            if not report.ok:
-                problems += 1
+            if report.ok:
+                continue
+            if report.installed:
+                broken += 1
+            else:
+                absent += 1
 
     print()
     chosen = f"{settings.asr_engine}/{settings.asr_model}" if settings.asr_engine else "(none set)"
     print(f"Selected model    : {chosen}")
-    if problems:
-        print(f"\n{problems} problem(s) found. Anything \"not downloaded yet\" is "
-              "fixed by running that engine once, or by Download model in the "
-              "app. Anything that \"will not load\" is a bug - please send this "
-              f"output to {SUPPORT_EMAIL}.")
+
+    if absent:
+        print(f"\n{absent} package(s) are not downloaded. That is normal for "
+              "an engine you have not used: podHarvest fetches what it needs "
+              "the first time you run it, or when you press Download model.")
+    if broken:
+        print(f"\n{broken} package(s) are downloaded but will not load. That "
+              "is a bug, not something you can fix from here - please send "
+              f"this output to {SUPPORT_EMAIL}.")
         return 1
-    print("\nNo problems found.")
+    print("\nNothing is broken.")
     return 0
 
 

@@ -665,3 +665,40 @@ class TestTheModelSourceFilter:
         frame._local_models = [self._model()]
         monkeypatch.setattr(acquire, "is_downloaded", explode)
         assert frame._downloaded_models() == []
+
+
+class TestDoctorTellsProblemsFromNormality:
+    """Not downloaded is not the same as broken.
+
+    Every engine you did not choose is undownloaded -- that is the normal
+    state of a healthy install. Counting those as problems had `doctor`
+    reporting "6 problem(s) found" and exiting 1 on a machine where everything
+    worked, which is exactly the sort of false alarm that teaches people to
+    ignore the tool.
+    """
+
+    def _source(self):
+        from podharvest import cli
+
+        return inspect.getsource(cli._cmd_doctor)
+
+    def test_the_two_are_counted_separately(self):
+        source = self._source()
+        assert "broken = 0" in source and "absent = 0" in source
+
+    def test_only_a_thing_that_will_not_load_fails_the_command(self):
+        source = self._source()
+        # The non-zero exit lives under the broken branch, not the absent one.
+        assert "if broken:" in source
+        assert source.index("if broken:") < source.index("return 1")
+        assert source.index("if absent:") < source.index("if broken:")
+
+    def test_undownloaded_packages_are_described_as_normal(self):
+        source = self._source()
+        assert "That is normal" in source
+
+    def test_the_all_clear_does_not_claim_everything_is_downloaded(self):
+        """"No problems found" would be a lie next to four undownloaded ones."""
+        source = self._source()
+        assert "Nothing is broken." in source
+        assert "No problems found" not in source

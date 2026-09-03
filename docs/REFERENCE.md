@@ -542,9 +542,11 @@ of three answers.
 | `not downloaded yet` | Run that engine once, or press **Download model** |
 | `downloaded but will not load - <error>` | A packaging bug. The error is the import's own words |
 
-Exit status is 1 if anything is wrong, so it is usable in a script. The third
-answer is the one worth reporting: it means a file is on disk, passes every
-filesystem check, and still cannot run.
+Exit status is 1 only for the third answer. `not downloaded yet` is the normal
+state of every engine you have not used, so counting it as a fault would report
+problems on a perfectly healthy install; it is reported as information instead.
+The third answer is the one worth sending in: it means a file is on disk,
+passes every filesystem check, and still cannot run.
 
 ### Narrowing the model list
 
