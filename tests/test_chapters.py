@@ -243,3 +243,47 @@ class TestEmbedChapterObjects:
         core = pytest.importorskip("podharvest.audio_tags_core")
         marks = [core.Chapter(index=0, title="One", start_ms=0, end_ms=1_000)]
         assert chapters_mod.embed_chapter_objects(tmp_path / "gone.mp3", marks) is False
+
+
+class TestReadingBackWithoutFFmpeg:
+    """MP3 chapters are written with mutagen, so they must read back with it.
+
+    They used to be written by mutagen and read by ffprobe. On any machine
+    without FFmpeg -- CI, and plenty of real installs -- a file whose markers
+    had just been written successfully read back as having none. The asymmetry
+    was the bug; nothing was actually wrong with the file.
+    """
+
+    def test_mp3_chapters_read_back_with_no_ffmpeg_anywhere(self, episode_mp3,
+                                                            monkeypatch):
+        pytest.importorskip("mutagen")
+        from podharvest import hardware as hardware_mod
+
+        chapters_mod.embed_chapters(
+            episode_mp3, [(0, "Opening"), (600, "The interview")], 1200.0)
+
+        # No FFmpeg on this machine, as far as anything can tell.
+        monkeypatch.setattr(hardware_mod, "find_ffprobe", lambda: None)
+        found = chapters_mod.read_chapters(episode_mp3)
+        assert [name for _s, _e, name in found] == ["Opening", "The interview"]
+
+    def test_the_times_survive_the_round_trip(self, episode_mp3, monkeypatch):
+        pytest.importorskip("mutagen")
+        from podharvest import hardware as hardware_mod
+
+        chapters_mod.embed_chapters(
+            episode_mp3, [(0, "Opening"), (600, "The interview")], 1200.0)
+        monkeypatch.setattr(hardware_mod, "find_ffprobe", lambda: None)
+        starts = [start for start, _end, _name in chapters_mod.read_chapters(episode_mp3)]
+        assert starts == [0.0, 600.0]
+
+    def test_a_container_it_cannot_read_itself_still_asks_ffprobe(self, tmp_path,
+                                                                  monkeypatch):
+        """The shortcut is for MP3 only; everything else keeps the old path."""
+        from podharvest import hardware as hardware_mod
+
+        asked = []
+        monkeypatch.setattr(hardware_mod, "find_ffprobe",
+                            lambda: asked.append(True) or None)
+        chapters_mod.read_chapters(tmp_path / "something.m4b")
+        assert asked, "a non-MP3 must still go through ffprobe"

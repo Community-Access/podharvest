@@ -175,8 +175,29 @@ def embed_chapters(audio_path: Path, chapters: list[tuple[int, str]],
 
 
 def read_chapters(audio_path: Path) -> list[tuple[float, float, str]]:
-    """Read chapters back out of an audio file, for checking what was written."""
+    """Read chapters back out of an audio file, for checking what was written.
+
+    MP3s are read from their own ID3 frames rather than through ffprobe. They
+    are *written* that way -- `_embed_in_place` rewrites the tag block with
+    mutagen and never touches the audio -- so reading them any other way made
+    this asymmetric: a file whose markers had just been written successfully
+    read back as having none on a machine with no FFmpeg. Everything else
+    still goes through ffprobe, which is the only thing that understands the
+    other containers.
+    """
     import json
+
+    audio_path = Path(audio_path)
+    if audio_path.suffix.lower() in IN_PLACE_SUFFIXES:
+        try:
+            from podharvest import audio_tags_core as core
+
+            return [(chapter.start_ms / 1000.0, chapter.end_ms / 1000.0,
+                     chapter.title)
+                    for chapter in core.read_mp3_chapters(audio_path)]
+        except Exception as exc:  # noqa: BLE001 - fall through to ffprobe
+            LOG.debug("Could not read ID3 chapters from %s (%s); trying ffprobe.",
+                      audio_path.name, exc)
 
     from podharvest.hardware import find_ffprobe
     ffprobe = find_ffprobe()
