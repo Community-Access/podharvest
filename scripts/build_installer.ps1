@@ -18,8 +18,10 @@
 .PARAMETER Inno
     Also compile installer/podharvest.iss into a conventional Windows
     installer (podharvest-<version>-setup.exe) using Inno Setup's ISCC.exe.
-    Requires Inno Setup 6 or 7 (https://jrsoftware.org/isinfo.php), found on
-    PATH or in the usual per-user and Program Files locations.
+    Requires Inno Setup 7 (https://jrsoftware.org/isinfo.php), found on PATH
+    or in the usual per-user and Program Files locations. Version 7 rather
+    than 6 because installer\podharvest.iss uses SetupArchitecture=x64 for a
+    64-bit installer and relies on 7's extended-length path support.
 
 .EXAMPLE
     ./scripts/build_installer.ps1
@@ -80,9 +82,10 @@ try {
         # two means "& $iscc.Path" silently resolves to null for one of them.
         $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Path
         if (-not $iscc) {
-            # winget installs Inno Setup per-user under LOCALAPPDATA by default,
-            # and version 7 exists alongside 6, so checking only the Program
-            # Files path for version 6 misses the common case. Newest first.
+            # winget installs Inno Setup per-user under LOCALAPPDATA by
+            # default, and 7 installs alongside 6 rather than replacing it, so
+            # checking only the Program Files path for 6 misses the common
+            # case. Newest first: the script needs 7.
             $candidates = @(
                 "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
                 "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
@@ -97,8 +100,20 @@ try {
             Write-Warning "ISCC.exe (Inno Setup) not found. Install it from https://jrsoftware.org/isinfo.php or with 'winget install JRSoftware.InnoSetup', then re-run with -Inno."
         }
         else {
-            Write-Host "  Using  : $iscc"
-            & $iscc "$root\installer\podharvest.iss" "/DMyAppVersion=$version"
+            # --version is an Inno Setup 7 option, so a 6 install fails it and
+            # the message can say what is actually wrong. The script needs 7
+            # for SetupArchitecture=x64 and extended-length path support; 6
+            # would fail later with a confusing "unknown directive" instead.
+            $isVersion = (& $iscc --version 2>$null) | Select-Object -First 1
+            if ($LASTEXITCODE -ne 0 -or -not $isVersion) {
+                throw "Found $iscc, but it is not Inno Setup 7. installer\podharvest.iss uses SetupArchitecture, which 6 does not have. Install Inno Setup 7 from https://jrsoftware.org/isinfo.php."
+            }
+            Write-Host "  Using  : $iscc (Inno Setup $isVersion)"
+            # --messages-jsonl (Inno Setup 7) puts errors and warnings on
+            # stderr as JSON Lines, so a CI job can read them without parsing
+            # prose. Warnings survive --quiet when it is on, which is what you
+            # want from a build log.
+            & $iscc --quiet --messages-jsonl "/DMyAppVersion=$version" "$root\installer\podharvest.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
             Write-Host "  Setup  : $root\dist\installer\podharvest-$version-setup.exe" -ForegroundColor Green
         }

@@ -24,3 +24,13 @@
 # Keep generated/vendored fixtures out of language statistics and diffs.
 bench/comparison-report.md linguist-generated=true
 docs/** linguist-documentation=true
+
+# The vendored shared modules are byte-identical with QUILL's copies
+# (quill/core/speech/audio_tags_core.py and reuse_core.py), and a SHA-256 drift
+# test in each repo checks that. The `* text=auto eol=lf` rule above would
+# rewrite line endings on checkout and make the two copies hash differently, so
+# these files keep exactly the bytes that were committed.
+podharvest/audio_tags_core.py -text
+podharvest/audio_tags_core.sha256 -text
+podharvest/reuse_core.py -text
+podharvest/reuse_core.sha256 -text

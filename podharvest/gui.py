@@ -32,52 +32,48 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from pathlib import Path
 
-from podharvest import DISPLAY_NAME, __version__
+from podharvest import DISPLAY_NAME, SUPPORT_EMAIL, __version__
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
+from podharvest import help as help_mod
+from podharvest.a11y import _Named, set_accessible_name, size_for_text  # noqa: F401
 from podharvest.keystore import load_key as keystore_load
+from podharvest.player import PlayerPanel
 from podharvest.util import LOG, spoken_duration
+
+#: How often the playhead is written to disk while playing. The transport
+#: ticks ten times a second; recording that would be a great deal of disk
+#: for a number nobody needs to the tenth of a second.
+POSITION_SAVE_SECONDS = 5.0
+
+#: The episode list is two things at different times, and its column headings
+#: say which. A reader hears the heading with every cell, so they have to be
+#: true for what is actually in the row.
+_LIBRARY_COLUMNS = (
+    ("Podcast", 200), ("Episode", 340), ("What you have", 170),
+    ("Published", 100), ("Length", 90),
+)
+_RUN_COLUMNS = (
+    ("#", 50), ("Episode", 380), ("Status", 150),
+    ("Progress", 90), ("Time", 110),
+)
+#: Headings for the local-files list. Same five slots, different questions:
+#: a file you already had is identified by its name and where it sits, not by
+#: which podcast it came from or when it was published.
+_LOCAL_COLUMNS = (
+    ("File", 240), ("Title", 300), ("What you have", 180),
+    ("Folder", 200), ("Length", 90),
+)
 
 try:
     import wx
+    import wx.adv
 except ImportError:  # pragma: no cover - surfaced to the caller
     raise
-
-
-class _Named(wx.Accessible):
-    """Gives a control a real accessible name.
-
-    `wx.Window.SetName()` only sets the internal `FindWindowByName` key; it
-    reaches neither MSAA/UIA, AT-SPI nor NSAccessibility. Controls that have
-    no adjacent `wx.StaticText` to borrow a name from need this instead.
-    """
-
-    def __init__(self, name: str) -> None:
-        super().__init__()
-        self._name = name
-
-    def GetName(self, childId):  # noqa: N802 - wx API casing
-        return (wx.ACC_OK, self._name)
-
-
-def set_accessible_name(ctrl: wx.Window, name: str) -> None:
-    """Attach an accessible name to `ctrl` and keep it alive.
-
-    `SetAccessible` does not take ownership, so the helper is stashed on the
-    control; without that reference it is garbage collected and the name
-    silently disappears.
-    """
-    ctrl.SetName(name)                  # still useful for FindWindowByName
-    try:
-        helper = _Named(name)
-        ctrl.SetAccessible(helper)
-        ctrl._a11y_helper = helper      # noqa: SLF001 - keep a strong reference
-    except (AttributeError, NotImplementedError):
-        # wx.Accessible is Windows-only; elsewhere the label heuristic and
-        # the platform's own defaults apply.
-        pass
 
 
 class _LogToTextCtrl(logging.Handler):
@@ -120,6 +116,7 @@ class SettingsDialog(wx.Dialog):
 
     def __init__(self, parent: wx.Window, app, settings) -> None:
         super().__init__(parent, title="Settings", style=wx.DEFAULT_DIALOG_STYLE)
+        help_mod.install(self)
         self.app = app
         self.settings = settings
         outer = wx.BoxSizer(wx.VERTICAL)
@@ -128,6 +125,10 @@ class SettingsDialog(wx.Dialog):
         log_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Activity log")
         holder = log_box.GetStaticBox()
         self.chk_log_file = wx.CheckBox(holder, label="&Save a log file for every run")
+        self.chk_log_file.SetToolTip(
+            "Keeps a record of every run in a file, so a problem can be looked at after the "
+            "fact rather than only while it is on screen."
+        )
         self.chk_log_file.SetValue(settings.log_to_file)
         self.chk_log_file.Bind(wx.EVT_CHECKBOX, self._on_toggle_log)
         log_box.Add(self.chk_log_file, 0, wx.ALL, 6)
@@ -136,8 +137,15 @@ class SettingsDialog(wx.Dialog):
         row.Add(wx.StaticText(holder, label="Log &folder:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.log_dir_ctrl = wx.TextCtrl(
             holder, value=config_mod.resolved_log_dir(app, settings), size=(320, -1))
+        self.log_dir_ctrl.SetToolTip(
+            "Where the log file is written. Leave it as it is unless you want "
+            "the log somewhere particular."
+        )
         set_accessible_name(self.log_dir_ctrl, "Log folder")
         browse = wx.Button(holder, label="Br&owse...")
+        browse.SetToolTip(
+            "Picks the folder for the log file with the system folder chooser."
+        )
         browse.Bind(wx.EVT_BUTTON, self._on_browse_log)
         row.Add(self.log_dir_ctrl, 1, wx.EXPAND | wx.RIGHT, 6)
         row.Add(browse, 0)
@@ -156,6 +164,10 @@ class SettingsDialog(wx.Dialog):
         # reads on focus, so it has to stay accurate.
         self.chk_summaries = wx.CheckBox(
             sholder, label="&Write a summary for each episode")
+        self.chk_summaries.SetToolTip(
+            "Writes a short summary of each episode beside its transcript. The box below says "
+            "how long that adds per episode on this machine."
+        )
         self.chk_summaries.SetValue(settings.enrichment_enabled)
         self.chk_summaries.Bind(wx.EVT_CHECKBOX, self._on_toggle_summaries)
         self.chk_full_episode = wx.CheckBox(
@@ -177,6 +189,10 @@ class SettingsDialog(wx.Dialog):
         model_row.Add(wx.StaticText(sholder, label="Summaries written &by:"), 0,
                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.summary_model_choice = wx.Choice(sholder)
+        self.summary_model_choice.SetToolTip(
+            "Which model writes the summaries. The box underneath says what this one will "
+            "cost you in time on this machine, for the podcast you have loaded."
+        )
         set_accessible_name(self.summary_model_choice, "Model that writes summaries")
         self.summary_model_choice.Append("On this machine (nothing uploaded)", None)
         for entry in cloud_mod.available_cloud_models(app, kind="enrichment"):
@@ -201,8 +217,14 @@ class SettingsDialog(wx.Dialog):
         # line by line. Summaries are far and away the slowest thing podharvest
         # does, and nobody should discover that only after starting a run.
         self.summary_note = wx.TextCtrl(
-            sholder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
-            size=(-1, 90))
+            sholder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        # Sized in lines of its own font rather than in pixels, so it still
+        # shows five lines when the text is scaled up rather than one.
+        size_for_text(self.summary_note, lines=5)
+        self.summary_note.SetToolTip(
+            "What the chosen summary model will actually cost you in time on this machine, "
+            "for the podcast you have loaded. Read-only."
+        )
         set_accessible_name(self.summary_note, "How long summaries will take")
         sum_box.Add(self.summary_note, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         outer.Add(sum_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
@@ -217,14 +239,26 @@ class SettingsDialog(wx.Dialog):
                   "itself (the .md and .txt files), not to these."),
             0, wx.ALL, 6)
         self.chk_srt = wx.CheckBox(subholder, label="Write a .s&rt subtitle file")
+        self.chk_srt.SetToolTip(
+            "Writes a .srt subtitle track beside each transcript. Useful for video editors "
+            "and media players; the transcript itself is written either way."
+        )
         self.chk_srt.SetValue(settings.write_srt)
         self.chk_vtt = wx.CheckBox(subholder, label="Write a .&vtt subtitle file")
+        self.chk_vtt.SetToolTip(
+            "Writes a .vtt subtitle track beside each transcript. WebVTT is what web players "
+            "use; the transcript itself is written either way."
+        )
         self.chk_vtt.SetValue(settings.write_vtt)
         sub_box.Add(self.chk_srt, 0, wx.LEFT | wx.RIGHT, 6)
         sub_box.Add(self.chk_vtt, 0, wx.ALL, 6)
         outer.Add(sub_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         # -- cloud providers -----------------------------------------------
+        outer.Add(self._build_local_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        outer.Add(self._build_playback_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
         outer.Add(self._build_keys_box(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
 
         # -- finishing -----------------------------------------------------
@@ -232,6 +266,10 @@ class SettingsDialog(wx.Dialog):
         fholder = fin_box.GetStaticBox()
         self.chk_finished_dialog = wx.CheckBox(
             fholder, label="Show a &dialog saying the run has finished")
+        self.chk_finished_dialog.SetToolTip(
+            "Shows a message when the whole run finishes, and takes focus so a screen reader "
+            "announces it. Turn it off if you would rather watch the log."
+        )
         self.chk_finished_dialog.SetValue(settings.show_finished_dialog)
         fin_box.Add(self.chk_finished_dialog, 0, wx.ALL, 6)
         outer.Add(fin_box, 0, wx.EXPAND | wx.ALL, 10)
@@ -241,6 +279,97 @@ class SettingsDialog(wx.Dialog):
         self.SetSizerAndFit(outer)
         self._on_toggle_log(None)
         self._on_toggle_summaries(None)
+
+    def _build_local_settings(self) -> wx.StaticBoxSizer:
+        """How podHarvest treats audio you already have."""
+        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Local files")
+        holder = box.GetStaticBox()
+
+        self.chk_local_beside = wx.CheckBox(
+            holder, label="Write transcripts &beside the audio file")
+        self.chk_local_beside.SetValue(
+            self.settings.local_transcripts_beside_file)
+        self.chk_local_beside.SetToolTip(
+            "On: lecture.mp3 gets lecture.md next to it, so a file and its "
+            "transcript stay together if you move the folder later. Off: "
+            "transcripts go into a \"Local files\" folder inside your output "
+            "folder instead, and podHarvest never writes into your own "
+            "folders. Chapter markers and tags are written into the audio "
+            "either way, because that is where they belong."
+        )
+        box.Add(self.chk_local_beside, 0, wx.ALL, 6)
+
+        self.chk_local_recurse = wx.CheckBox(
+            holder, label="Include su&bfolders when I add a folder")
+        self.chk_local_recurse.SetValue(self.settings.local_recurse_folders)
+        self.chk_local_recurse.SetToolTip(
+            "On: adding a folder takes the audio in it and in everything under "
+            "it, which is what an album or a series of lectures usually needs. "
+            "Off: only the folder you picked."
+        )
+        box.Add(self.chk_local_recurse, 0, wx.ALL, 6)
+        return box
+
+    def _build_playback_settings(self) -> wx.StaticBoxSizer:
+        """How the transport behaves: skip amounts, and whether to resume."""
+        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Playback")
+        holder = box.GetStaticBox()
+        grid = wx.FlexGridSizer(3, 2, 8, 8)
+        grid.AddGrowableCol(1)
+
+        # Label before control, so a screen reader pairs the two.
+        grid.Add(wx.StaticText(holder, label="Rewind by (seconds):"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.skip_back_ctrl = wx.SpinCtrl(
+            holder, min=1, max=300,
+            initial=max(1, self.settings.skip_back_ms // 1000))
+        self.skip_back_ctrl.SetToolTip(
+            "How far the Rewind button and Ctrl+B jump back. Ten seconds is "
+            "about a sentence, which is usually what you missed."
+        )
+        set_accessible_name(self.skip_back_ctrl, "Rewind by, in seconds")
+        grid.Add(self.skip_back_ctrl, 0)
+
+        grid.Add(wx.StaticText(holder, label="Forward by (seconds):"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.skip_forward_ctrl = wx.SpinCtrl(
+            holder, min=1, max=300,
+            initial=max(1, self.settings.skip_forward_ms // 1000))
+        self.skip_forward_ctrl.SetToolTip(
+            "How far the Forward button and Ctrl+F jump on. Separate from "
+            "rewind on purpose: skipping an advert break usually wants a "
+            "bigger jump than re-hearing a sentence."
+        )
+        set_accessible_name(self.skip_forward_ctrl, "Forward by, in seconds")
+        grid.Add(self.skip_forward_ctrl, 0)
+
+        grid.Add(wx.StaticText(holder, label="Playback &speeds:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.rates_ctrl = wx.TextCtrl(
+            holder, value=_rates_text(self.settings.playback_rates))
+        self.rates_ctrl.SetToolTip(
+            "The speeds the Speed box offers, separated by commas. Go as fast "
+            f"as {config_mod.MAX_RATE:g}x or as slow as {config_mod.MIN_RATE:g}x: "
+            "3x is a normal way through a backlog, and 0.5x makes a fast "
+            "speaker followable. Anything outside that range, or that is not a "
+            "number, is dropped; 1x is always kept so there is a way back to "
+            "normal speed."
+        )
+        set_accessible_name(
+            self.rates_ctrl, "Playback speeds, separated by commas")
+        grid.Add(self.rates_ctrl, 1, wx.EXPAND)
+        box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.chk_remember_position = wx.CheckBox(
+            holder, label="&Remember where I stopped in each episode")
+        self.chk_remember_position.SetValue(self.settings.remember_playback_position)
+        self.chk_remember_position.SetToolTip(
+            "Picks an episode up where you left it, and says so when it does. "
+            "An episode you played to the end starts from the beginning next "
+            "time, because finishing is not a place to come back to."
+        )
+        box.Add(self.chk_remember_position, 0, wx.ALL, 6)
+        return box
 
     def _build_keys_box(self) -> wx.StaticBoxSizer:
         """One masked field per cloud provider.
@@ -271,6 +400,11 @@ class SettingsDialog(wx.Dialog):
             can = "transcripts and summaries" if provider.can_transcribe else "summaries only"
             label = wx.StaticText(holder, label=f"{provider.label} ({can}):")
             field = wx.TextCtrl(holder, style=wx.TE_PASSWORD, size=(300, -1))
+            field.SetToolTip(
+                "The API key for this provider. It is stored in the operating system's "
+                "credential vault, never in podHarvest's settings file, and only ever sent to "
+                "the provider it belongs to."
+            )
             set_accessible_name(field, f"{provider.label} API key, {can}")
 
             env_name = keystore.env_var_for(name)
@@ -301,6 +435,10 @@ class SettingsDialog(wx.Dialog):
         # run, as a failure that could equally mean the key was never saved,
         # was rejected, or the network was down. One button removes the guessing.
         self.test_keys_btn = wx.Button(holder, label="&Test these keys now")
+        self.test_keys_btn.SetToolTip(
+            "Checks each key you have entered against its provider, right now, and reports "
+            "which ones work. Nothing is transcribed and nothing is charged."
+        )
         self.test_keys_btn.Bind(wx.EVT_BUTTON, self._on_test_keys)
         self.test_keys_btn.SetToolTip(
             "Contacts each provider you have entered a key for and reports whether it "
@@ -310,8 +448,13 @@ class SettingsDialog(wx.Dialog):
         # Read-only and multi-line so the result is a real tab stop that can be
         # read back line by line, not a label that is announced once and lost.
         self.key_status = wx.TextCtrl(
-            holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
-            size=(-1, 90))
+            holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        # One line per provider tested, plus room for a sentence about each.
+        size_for_text(self.key_status, lines=6)
+        self.key_status.SetToolTip(
+            "The result of the last key test: which providers answered and which did not. "
+            "Read-only."
+        )
         set_accessible_name(self.key_status, "Key test results")
         self.key_status.SetValue(
             "Keys have not been tested. Press \"Test these keys now\" to check them "
@@ -485,6 +628,34 @@ class SettingsDialog(wx.Dialog):
         settings.write_srt = self.chk_srt.GetValue()
         settings.write_vtt = self.chk_vtt.GetValue()
         settings.show_finished_dialog = self.chk_finished_dialog.GetValue()
+        settings.skip_back_ms = self.skip_back_ctrl.GetValue() * 1000
+        settings.skip_forward_ms = self.skip_forward_ctrl.GetValue() * 1000
+        settings.remember_playback_position = self.chk_remember_position.GetValue()
+        settings.playback_rates = config_mod.clean_rates(
+            _parse_rates(self.rates_ctrl.GetValue()))
+        settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()
+        settings.local_recurse_folders = self.chk_local_recurse.GetValue()
+
+
+def _rates_text(rates) -> str:
+    """``[0.75, 1.0, 2.0]`` -> ``0.75, 1, 2``, for the settings field."""
+    return ", ".join(f"{float(r):g}" for r in rates)
+
+
+def _parse_rates(text: str) -> list[float]:
+    """Whatever was typed, as numbers. Separators are generous on purpose.
+
+    Somebody typing a list of speeds should not have to think about whether
+    commas or spaces are wanted, and an "x" after each is the obvious thing to
+    write. Validation proper is `config.clean_rates`; this only splits.
+    """
+    rates: list[float] = []
+    for chunk in text.replace("x", " ").replace(",", " ").split():
+        try:
+            rates.append(float(chunk))
+        except ValueError:
+            continue
+    return rates
 
 
 class MainFrame(wx.Frame):
@@ -494,8 +665,22 @@ class MainFrame(wx.Frame):
         self.app_space.activate()
         self.settings = config_mod.load(self.app_space)
         self._worker: threading.Thread | None = None
+        # The local-files source: what has been added, and the row -> file map
+        # the Episodes list is built from. Buttons are collected so they can be
+        # disabled together during a run.
+        self._local_paths: list[Path] = []
+        self._local_rows: dict = {}
+        self._local_buttons: list = []
         self._cancel_event = threading.Event()
         self._episode_rows: dict[int, int] = {}
+        #: Which episode the transport currently holds open, so pressing
+        #: Play twice does not reload the same file.
+        self._loaded_audio_title: str = ""
+        self._loaded_audio_path = None
+        self._position_saved_at = 0.0
+        #: The library rows currently shown, by row index. Empty while a
+        #: run is in progress, when the list is a progress view instead.
+        self._library_rows: dict[int, object] = {}
         self._episode_percent: dict[int, tuple[str, int]] = {}
         self._counts: dict[str, int] = {}
         self._run_output_dir = ""
@@ -521,6 +706,18 @@ class MainFrame(wx.Frame):
         self.CreateStatusBar()
         self.SetStatusText("Ready.")
         self.Bind(wx.EVT_CLOSE, self._on_close)
+        # F1 anywhere answers with what this window is for and what the focused
+        # control does. This also installs the help provider, without which
+        # every SetHelpText in the program silently stores nothing.
+        help_mod.install(self)
+        self._setup_tray()
+        # After the log handler is wired, so the notice lands where a screen
+        # reader can go and read it (Ctrl+L).
+        self._report_media_health()
+        # The list starts as your library -- or, if Local files was the source
+        # last time, as that -- rather than as an empty box: what you were
+        # doing last time is the most likely reason you opened this.
+        self._apply_source_mode()
         self.refresh_hardware()
 
     # -- thread-safe UI updates -------------------------------------------
@@ -553,6 +750,16 @@ class MainFrame(wx.Frame):
                                              "Stop the harvest in progress")
         self._menu_cancel.Enable(False)
         file_menu.AppendSeparator()
+        # The way in for somebody who opened podHarvest to work on files they
+        # already have. Both switch the window to Local files themselves, so
+        # this is a complete route in without touching the radio first.
+        self._menu_add_files = file_menu.Append(
+            wx.ID_ANY, "&Add local files...\tCtrl+O",
+            "Choose audio already on this machine to transcribe, tag or edit")
+        self._menu_add_folder = file_menu.Append(
+            wx.ID_ANY, "Add a local f&older...\tCtrl+Shift+F",
+            "Take every audio file in a folder")
+        file_menu.AppendSeparator()
         self._menu_settings = file_menu.Append(wx.ID_PREFERENCES, "Se&ttings...\tCtrl+,",
                                                "Log file location, summaries and subtitle files")
         self._menu_open_out = file_menu.Append(wx.ID_ANY, "Open &output folder\tCtrl+Shift+O",
@@ -570,9 +777,38 @@ class MainFrame(wx.Frame):
                                                 "Move focus to the activity log")
         self._menu_redetect = view_menu.Append(wx.ID_ANY, "&Re-detect hardware\tCtrl+D",
                                                "Probe the hardware again")
+        self._menu_refresh_library = view_menu.Append(
+            wx.ID_ANY, "Re&fresh the library	Ctrl+Shift+R",
+            "Read the output folder again and list what is in it")
+        self._menu_transcript = view_menu.Append(
+            wx.ID_ANY, "Read the &transcript...	Ctrl+Shift+T",
+            "Open the selected episode's transcript, with a search box")
+        view_menu.AppendSeparator()
+        self._menu_play = view_menu.Append(
+            wx.ID_ANY, "&Play or pause the selected episode	Ctrl+P",
+            "Play the highlighted episode, or pause it if it is playing")
+        self._menu_rewind = view_menu.Append(
+            wx.ID_ANY, "Rewind ten seconds	Ctrl+B",
+            "Jump back ten seconds")
+        self._menu_forward = view_menu.Append(
+            wx.ID_ANY, "Forward ten seconds	Ctrl+F",
+            "Jump on ten seconds")
+        view_menu.AppendSeparator()
+        self._menu_tray = view_menu.Append(
+            wx.ID_ANY, "&Minimise to the notification area	Ctrl+Shift+M",
+            "Hide the window; the run carries on and the tray icon brings it back")
+        self._menu_edit_tags = view_menu.Append(
+            wx.ID_ANY, "Edit tags and chap&ters...	Ctrl+T",
+            "Open an episode's audio in the Tag and Chapter Editor")
         bar.Append(view_menu, "&View")
 
         help_menu = wx.Menu()
+        self._menu_report_bug = help_menu.Append(
+            wx.ID_ANY, "&Report a bug...",
+            "Build a report you can read before anything is sent")
+        self._menu_media_tools = help_menu.Append(
+            wx.ID_ANY, "&Media tools...",
+            "Whether FFmpeg is installed, and what it is used for")
         help_menu.Append(wx.ID_ABOUT, f"&About {DISPLAY_NAME}", "Version and project information")
         bar.Append(help_menu, "&Help")
 
@@ -580,6 +816,8 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_start, self._menu_start)
         self.Bind(wx.EVT_MENU, self._on_cancel, self._menu_cancel)
         self.Bind(wx.EVT_MENU, self._on_settings, self._menu_settings)
+        self.Bind(wx.EVT_MENU, self._on_add_files, self._menu_add_files)
+        self.Bind(wx.EVT_MENU, self._on_add_folder, self._menu_add_folder)
         self.Bind(wx.EVT_MENU, lambda evt: self._open_folder(
             self._run_output_dir or self.output_ctrl.GetValue().strip()), self._menu_open_out)
         self.Bind(wx.EVT_MENU, lambda evt: self._open_folder(
@@ -589,6 +827,17 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda evt: self.episode_list.SetFocus(),
                   self._menu_focus_episodes)
         self.Bind(wx.EVT_MENU, lambda evt: self.refresh_hardware(force=True), self._menu_redetect)
+        self.Bind(wx.EVT_MENU, lambda _e: self.refresh_library(),
+                  self._menu_refresh_library)
+        self.Bind(wx.EVT_MENU, lambda _e: self._on_read_transcript(),
+                  self._menu_transcript)
+        self.Bind(wx.EVT_MENU, lambda _e: self._on_play_selected(), self._menu_play)
+        self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_back(), self._menu_rewind)
+        self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_forward(), self._menu_forward)
+        self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
+        self.Bind(wx.EVT_MENU, self._on_edit_tags, self._menu_edit_tags)
+        self.Bind(wx.EVT_MENU, self._on_report_bug, self._menu_report_bug)
+        self.Bind(wx.EVT_MENU, self._on_media_tools, self._menu_media_tools)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
 
     def _build_accelerators(self) -> None:
@@ -605,28 +854,267 @@ class MainFrame(wx.Frame):
             (wx.ACCEL_CTRL, ord(","), self._menu_settings.GetId()),
             (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("O"), self._menu_open_out.GetId()),
             (wx.ACCEL_CTRL, ord("E"), self._menu_focus_episodes.GetId()),
+            (wx.ACCEL_CTRL, ord("T"), self._menu_edit_tags.GetId()),
+            (wx.ACCEL_CTRL, ord("P"), self._menu_play.GetId()),
+            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("R"),
+             self._menu_refresh_library.GetId()),
+            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("T"),
+             self._menu_transcript.GetId()),
+            (wx.ACCEL_CTRL, ord("B"), self._menu_rewind.GetId()),
+            (wx.ACCEL_CTRL, ord("F"), self._menu_forward.GetId()),
+            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("M"), self._menu_tray.GetId()),
         ]))
 
     def _on_focus_log(self, _evt) -> None:
         self.log_ctrl.SetFocus()
 
+    def _on_report_bug(self, _evt) -> None:
+        """Build a bug report, show it, and let the person decide what to do.
+
+        Nothing is sent. podHarvest's promise is that what you listen to stays
+        on your machine, and a bug reporter that uploaded on your behalf would
+        break that promise in the one place people would least expect it.
+        """
+        from podharvest import feedback
+
+        report = feedback.build_report(
+            settings=self.settings,
+            hardware_summary=self.hw_text.GetLabel(),
+            log_text="\n".join(
+                self.log_ctrl.GetValue().splitlines()[-feedback.LOG_TAIL_LINES:]),
+            log_path=config_mod.resolved_log_file(self.app_space, self.settings),
+        )
+        dlg = _BugReportDialog(self, report)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+
+    def _set_columns(self, columns) -> None:
+        """Re-label the list's columns for what it is about to show."""
+        for index, (heading, width) in enumerate(columns):
+            item = wx.ListItem()
+            item.SetText(heading)
+            item.SetWidth(width)
+            self.episode_list.SetColumn(index, item)
+            self.episode_list.SetColumnWidth(index, width)
+
+    def refresh_library(self) -> None:
+        """List what is already in the output folder.
+
+        The Episodes list is two things at different times: a progress view
+        while a run is going, and the library the rest of the time. This is
+        the library half -- read from each show's own feed.json, so the titles
+        are the publisher's rather than guessed from filenames.
+        """
+        from podharvest import library
+
+        if self._worker is not None and self._worker.is_alive():
+            return  # a run owns the list; do not pull it out from under it
+        if self.source_mode() == "local":
+            # The list belongs to the local files while that source is chosen.
+            self.refresh_local_list()
+            return
+
+        output = Path(self.output_ctrl.GetValue().strip() or ".")
+        episodes = library.all_episodes(output)
+        self.episode_list.DeleteAllItems()
+        self._episode_rows = {}
+        self._library_rows = {}
+        self._set_columns(_LIBRARY_COLUMNS)
+        for episode in episodes:
+            row = self.episode_list.InsertItem(
+                self.episode_list.GetItemCount(), episode.show)
+            self.episode_list.SetItem(row, 1, episode.title)
+            self.episode_list.SetItem(row, 2, episode.what_it_has())
+            when = episode.published.strftime("%Y-%m-%d") if episode.published else ""
+            self.episode_list.SetItem(row, 3, when)
+            self.episode_list.SetItem(
+                row, 4, spoken_duration(episode.duration_seconds or 0)
+                if episode.duration_seconds else "")
+            self._library_rows[row] = episode
+        if episodes:
+            LOG.info("Your library has %d episode(s) in it. Arrow through the "
+                     "list; Ctrl+P plays one, Ctrl+Shift+T reads its "
+                     "transcript, Ctrl+T edits its tags and chapters.",
+                     len(episodes))
+        else:
+            LOG.info("Nothing in %s yet. Paste a feed address above and press "
+                     "Start.", output)
+        self._on_episode_selected()
+
+    def _selected_library_episode(self):
+        """The library row highlighted, or None during a run or with no row."""
+        row = self.episode_list.GetFirstSelected()
+        return self._library_rows.get(row) if row >= 0 else None
+
+    def _selected_local_file(self):
+        """The local file highlighted, or None. Only ever set in local mode."""
+        row = self.episode_list.GetFirstSelected()
+        return self._local_rows.get(row) if row >= 0 else None
+
+    def _on_read_transcript(self) -> None:
+        """Open the selected episode's transcript in the reader."""
+        from podharvest.reader import TranscriptDialog
+
+        local = self._selected_local_file()
+        if local is not None:
+            from podharvest import localfiles
+            from podharvest import reuse as reuse_mod
+
+            out_dir, slug = localfiles.transcript_location(
+                local.path,
+                beside=self.settings.local_transcripts_beside_file,
+                output_dir=Path(self.output_ctrl.GetValue().strip() or "."))
+            found = reuse_mod.transcript_in(out_dir, slug)
+            if found is None:
+                LOG.info("There is no transcript for %s yet. Press Start to "
+                         "make one.", local.path.name)
+                return
+            dlg = TranscriptDialog(self, found, title=local.display_title)
+            try:
+                dlg.ShowModal()
+            finally:
+                dlg.Destroy()
+            return
+        episode = self._selected_library_episode()
+        if episode is None:
+            LOG.info("Select an episode in the library first. Press "
+                     "Ctrl+Shift+R to list what you have.")
+            return
+        if episode.transcript is None:
+            LOG.info("There is no transcript for '%s'. Tick \"Transcribe "
+                     "downloaded audio\" and run it again to make one.",
+                     episode.title)
+            return
+        dlg = TranscriptDialog(self, episode.transcript, title=episode.title)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+
+    def _on_media_tools(self, _evt) -> None:
+        """Answer the question, whichever way the answer goes."""
+        from podharvest import media_health
+
+        wx.MessageBox(media_health.check().readout(), "Media tools",
+                      wx.OK | wx.ICON_INFORMATION, self)
+
+    def _report_media_health(self) -> None:
+        """Say once that FFmpeg is missing, and what that costs.
+
+        Every FFmpeg feature here fails by producing a plausible result -- the
+        episode downloads and simply has no chapter markers -- so nobody
+        notices and nobody reports it. Saying nothing on a healthy install is
+        the other half: a startup that reports good news every time is one
+        people learn to talk over.
+        """
+        from podharvest import media_health
+
+        health = media_health.check()
+        signature = health.signature()
+        if health.healthy or signature == getattr(self.settings, "media_health_last_notice", ""):
+            return
+        LOG.warning("%s", health.notice())
+        self.settings.media_health_last_notice = signature
+        config_mod.save(self.app_space, self.settings)
+
+    def _selected_episode_title(self) -> str:
+        """The title in the highlighted episode row, or "" when none is."""
+        row = self.episode_list.GetFirstSelected()
+        if row < 0:
+            return ""
+        return self.episode_list.GetItemText(row, 1).strip()
+
+    def _episode_audio_to_edit(self):
+        """The audio file to open: the selected episode's, or one you pick.
+
+        The on-disk name comes from a configurable template, so the selected
+        row is matched by the slug of its title. When that finds exactly one
+        file it opens straight away; otherwise -- no selection, no run yet, or
+        two files that both match -- a file picker opens on the output folder,
+        which always works and never opens the wrong episode.
+        """
+        from pathlib import Path
+
+        from podharvest import tags as tags_mod
+
+        local = self._selected_local_file()
+        if local is not None:
+            return local.path
+        output = Path(self.output_ctrl.GetValue().strip() or ".")
+        title = self._selected_episode_title()
+        if title:
+            found = tags_mod.find_episode_audio(output, title)
+            if found is not None:
+                return found
+        with wx.FileDialog(
+            self,
+            "Choose an audio file to edit",
+            defaultDir=str(output) if output.is_dir() else "",
+            wildcard="Audio (*.mp3;*.m4a;*.m4b;*.mp4)|*.mp3;*.m4a;*.m4b;*.mp4",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return None
+            return Path(dlg.GetPath())
+
+    def _on_edit_tags(self, _evt) -> None:
+        """Open an episode's audio in the Tag and Chapter Editor."""
+        from podharvest import tags as tags_mod
+        from podharvest.editor import edit_file
+
+        path = self._episode_audio_to_edit()
+        if path is None:
+            return
+        if not tags_mod.is_taggable(path):
+            wx.MessageBox(
+                f"{path.name} is not a file type this editor can tag. MP3, M4A, "
+                "M4B and MP4 can be edited; the others are left alone rather "
+                "than half-supported.",
+                "Cannot edit this file", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        edit_file(
+            self,
+            path,
+            settings=self.settings,
+            on_settings_changed=lambda: config_mod.save(self.app_space, self.settings),
+        )
+
     def _on_about(self, _evt) -> None:
-        from podharvest import HOMEPAGE
+        from podharvest import HOMEPAGE, SUPPORT_EMAIL
         wx.MessageBox(
             f"{DISPLAY_NAME} {__version__}\n\n"
             "Archive any RSS/Atom/podcast feed as Markdown, HTML, plain text and "
             "JSON, download every enclosure, and transcribe the audio on this "
             "machine. Optional cloud providers are available with your own API "
             "key.\n\n"
-            f"{HOMEPAGE}\n\n"
+            "It also works on audio you already have. Switch Source to Local "
+            "files to transcribe, summarise, chapter, tag and play your own "
+            "recordings -- podHarvest is a full MP3 tag and chapter editor "
+            "whether or not a feed is involved.\n\n"
+            f"{HOMEPAGE}\n"
+            f"Support: {SUPPORT_EMAIL}\n\n"
+            "When writing in, the activity log (Ctrl+L) is the single most "
+            "useful thing to include: it says in plain words what happened.\n\n"
             "Keyboard shortcuts:\n"
             "  Ctrl+R        Start harvest\n"
             "  Esc           Cancel harvest\n"
+            "  Ctrl+O        Add local files\n"
+            "  Ctrl+Shift+F  Add a local folder\n"
             "  Ctrl+E        Go to episode list\n"
             "  Ctrl+L        Go to activity log\n"
+            "  Ctrl+P        Play or pause the selected episode\n"
+            "  Ctrl+B        Rewind\n"
+            "  Ctrl+F        Forward\n"
+            "  Ctrl+T        Edit tags and chapters\n"
             "  Ctrl+D        Re-detect hardware\n"
             "  Ctrl+comma    Settings\n"
-            "  Ctrl+Shift+O  Open output folder",
+            "  Ctrl+Shift+O  Open output folder\n"
+            "  Ctrl+Shift+M  Minimise to the notification area\n"
+            "  Ctrl+Shift+R  Refresh the library\n"
+            "  Ctrl+Shift+T  Read the transcript\n"
+            "  F1            Explain this window and the control you are on",
             f"About {DISPLAY_NAME}", wx.OK | wx.ICON_INFORMATION, self)
 
     # -- UI construction -----------------------------------------------
@@ -635,7 +1123,12 @@ class MainFrame(wx.Frame):
         panel = wx.Panel(self)
         outer = wx.BoxSizer(wx.VERTICAL)
 
-        outer.Add(self._build_feed_box(panel), 0, wx.EXPAND | wx.ALL, 10)
+        outer.Add(self._build_source_box(panel), 0, wx.EXPAND | wx.ALL, 10)
+        self._feed_box = self._build_feed_box(panel)
+        outer.Add(self._feed_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        self._local_box = self._build_local_box(panel)
+        outer.Add(self._local_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        outer.Add(self._build_output_box(panel), 0, wx.EXPAND | wx.ALL, 10)
         outer.Add(self._build_options_box(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         outer.Add(self._build_hardware_box(panel), 0, wx.EXPAND | wx.ALL, 10)
         outer.Add(self._build_action_row(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -648,19 +1141,45 @@ class MainFrame(wx.Frame):
         outer.Add(episodes_label, 0, wx.LEFT | wx.RIGHT, 10)
         self.episode_list = wx.ListCtrl(
             panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SUNKEN)
-        self.episode_list.AppendColumn("#", width=50)
-        self.episode_list.AppendColumn("Episode", width=380)
-        self.episode_list.AppendColumn("Status", width=150)
-        self.episode_list.AppendColumn("Progress", width=90)
-        self.episode_list.AppendColumn("Time", width=110)
+        # Five columns whose *headings* change with what the list is showing.
+        # A screen reader reads the heading with each cell, so leaving them on
+        # "Status, Progress" while the list holds a library would have it
+        # announce the wrong thing on every row.
+        for heading, width in _LIBRARY_COLUMNS:
+            self.episode_list.AppendColumn(heading, width=width)
         set_accessible_name(self.episode_list, "Episodes")
+        # Enter or a double-click on a row opens that episode in the editor,
+        # which is where somebody who has just heard a rough chapter boundary
+        # will reach first.
+        self.episode_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED,
+                               lambda _e: self._on_edit_tags(None))
+        # Selecting a row arms the transport below; it does not open the file.
+        self.episode_list.Bind(wx.EVT_LIST_ITEM_SELECTED,
+                               lambda _e: self._on_episode_selected())
+        self.episode_list.Bind(wx.EVT_LIST_ITEM_DESELECTED,
+                               lambda _e: self._on_episode_selected())
         self.episode_list.SetToolTip("Every episode in this run and how far along it is. "
                                      "Arrow up and down to review them at any time.")
         outer.Add(self.episode_list, 1, wx.EXPAND | wx.ALL, 10)
 
+        outer.Add(self._build_playback_box(panel), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
         log_label = wx.StaticText(panel, label="Activity log:")
         outer.Add(log_label, 0, wx.LEFT | wx.RIGHT, 10)
-        self.log_ctrl = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_DONTWRAP)
+        # Word-wrapped, not TE_DONTWRAP: every line here is a prose sentence
+        # ("Episode 3 of 40: starting on '...'. This can take a few minutes."),
+        # and making somebody scroll sideways to read the end of a sentence is
+        # a poor trade for the column alignment a log like this never had.
+        self.log_ctrl = wx.TextCtrl(
+            panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        self.log_ctrl.SetToolTip("Everything podHarvest is doing, in ordinary words, "
+                                 "including anything that went wrong. Read-only: arrow "
+                                 "through it, or select and copy. Ctrl+L jumps here "
+                                 "from anywhere.")
+        # A floor, not a ceiling: the sizer still stretches it to fill the
+        # window, but it never collapses to a two-line slot in a short one.
+        size_for_text(self.log_ctrl, lines=8)
         set_accessible_name(self.log_ctrl, "Activity log")
         outer.Add(self.log_ctrl, 1, wx.EXPAND | wx.ALL, 10)
 
@@ -670,19 +1189,431 @@ class MainFrame(wx.Frame):
         outer.Add(self.progress_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         self.progress = wx.Gauge(panel, range=100)
+        self.progress.SetToolTip("How far through the whole run you are. The line just "
+                                 "above says which episode is being worked on and how "
+                                 "much is left, which a bare percentage cannot.")
         set_accessible_name(self.progress, "Overall progress")
         outer.Add(self.progress, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         panel.SetSizer(outer)
+        self._outer = outer
+        # Both source boxes are built; only one is ever shown. Doing it here,
+        # after the sizer is set, means the window opens on whichever source
+        # was last used rather than flickering through the other one.
+        self._apply_source_mode(refresh=False)
+
+    def _build_playback_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """Play the selected episode, without opening anything.
+
+        Listening to what you just downloaded should not require going through
+        an editor. The transport is the same one the Tag and Chapter Editor
+        uses -- play, stop, rewind and forward ten seconds, volume, mute and
+        speed -- so the two behave alike, and the volume you set in one is the
+        volume you get in the other.
+
+        Everything here is disabled until an episode is selected, because a
+        transport with nothing loaded is a row of controls that lie about what
+        they will do.
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Playback")
+        holder = box.GetStaticBox()
+
+        self.now_playing = wx.StaticText(
+            holder, label="Select an episode to play it.")
+        set_accessible_name(self.now_playing, "Now playing")
+        box.Add(self.now_playing, 0, wx.ALL, 6)
+
+        self.player = PlayerPanel(
+            holder,
+            announce=self._announce_playback,
+            volume=self.settings.preview_volume,
+            muted=self.settings.preview_muted,
+            on_volume=self._remember_playback_volume,
+            skip_back_ms=self.settings.skip_back_ms,
+            skip_forward_ms=self.settings.skip_forward_ms,
+            rates=self.settings.playback_rates,
+        )
+        box.Add(self.player, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        self.player.Enable(False)
+        # Stored as it plays rather than only on close, so a crash or a pulled
+        # power cable still leaves a usable place to come back to.
+        self.player.set_tick_handler(self._remember_playback_position)
+        return box
+
+    def _announce_playback(self, text: str) -> None:
+        """Playback has nowhere to speak but the log, which is where it goes."""
+        LOG.info("%s", text)
+
+    def _remember_playback_volume(self, level: int, muted: bool) -> None:
+        """Keep the level across sessions, and across the two players."""
+        self.settings.preview_volume = level
+        self.settings.preview_muted = muted
+        config_mod.save(self.app_space, self.settings)
+
+    def _on_episode_selected(self) -> None:
+        """Enable the transport for the highlighted episode, or disable it.
+
+        The file is not opened here. Arrowing down a list of forty episodes
+        should not touch the disk forty times, and an episode still downloading
+        has nothing to open yet -- so loading waits for Play.
+        """
+        local = self._selected_local_file()
+        if local is not None:
+            # A local row is the file, so the readout says the file's name --
+            # two recordings can easily share a title, and the name is what
+            # tells them apart.
+            there = local.path.is_file()
+            self.player.Enable(there)
+            self.now_playing.SetLabel(
+                f"Ready to play: {local.path.name}" if there
+                else f"That file is no longer there: {local.path}")
+            return
+        episode = self._selected_library_episode()
+        if episode is not None:
+            # A library row knows exactly what it has, so the readout can be
+            # specific rather than hopeful.
+            self.player.Enable(episode.has_audio)
+            self.now_playing.SetLabel(
+                f"Ready to play: {episode.title}" if episode.has_audio
+                else f"No audio downloaded for: {episode.title}")
+            return
+        title = self._selected_episode_title()
+        if not title:
+            self.player.Enable(False)
+            self.now_playing.SetLabel("Select an episode to play it.")
+            return
+        self.player.Enable(True)
+        if self._loaded_audio_title != title:
+            self.now_playing.SetLabel(f"Ready to play: {title}")
+
+    def _on_play_selected(self) -> None:
+        """Load the selected episode if it is not loaded, then play or pause."""
+        local = self._selected_local_file()
+        title = local.path.name if local is not None else self._selected_episode_title()
+        if not title:
+            LOG.info("Select an episode first, then press Play.")
+            return
+        # A local file is identified by its path: two recordings can share a
+        # title, and reloading the wrong one because the titles matched would
+        # play the wrong audio.
+        already = (self._loaded_audio_path == local.path if local is not None
+                   else self._loaded_audio_title == title)
+        if not already:
+            # Leaving one episode for another: keep the place in the old one.
+            self._remember_playback_position(force=True)
+            path = local.path if local is not None else self._selected_episode_audio()
+            if path is None:
+                LOG.info("There is no audio file for '%s' yet. It may still be "
+                         "downloading, or this run did not download it.", title)
+                self.now_playing.SetLabel(f"No audio yet for: {title}")
+                return
+            if not self.player.load(path):
+                self.now_playing.SetLabel(f"Cannot play: {path.name}")
+                return
+            self._loaded_audio_title = title
+            self._loaded_audio_path = path
+            self.now_playing.SetLabel(f"Playing: {title}")
+            self._resume_if_remembered(path, title)
+        self.player.toggle()
+
+    def _resume_if_remembered(self, path, title: str) -> None:
+        """Pick the episode up where it was left, and say so.
+
+        Said out loud because it is a surprise otherwise: playback starting
+        forty minutes in looks like a bug unless something tells you why.
+        """
+        if not self.settings.remember_playback_position:
+            return
+        from podharvest import positions
+
+        resume_ms = positions.load(self.app_space.config_dir, path)
+        if resume_ms <= 0:
+            return
+        self.player.seek_to(resume_ms)
+        from podharvest.audio_tags_core import format_time_precise
+
+        where = format_time_precise(resume_ms)
+        self.now_playing.SetLabel(f"Playing: {title} (resumed at {where})")
+        LOG.info("Picking '%s' up where you left off, at %s.", title, where)
+
+    def _remember_playback_position(self, *, force: bool = False) -> None:
+        """Store the playhead for the loaded file. Never raises.
+
+        Throttled: the transport ticks ten times a second, and writing a file
+        at that rate to record something that changes by a tenth of a second is
+        a lot of disk for no benefit. Every few seconds is close enough to
+        return to, and *force* covers closing and switching episodes, where the
+        last few seconds actually matter.
+        """
+        if not self.settings.remember_playback_position:
+            return
+        path = getattr(self, "_loaded_audio_path", None)
+        if path is None:
+            return
+        now = time.monotonic()
+        if not force and now - self._position_saved_at < POSITION_SAVE_SECONDS:
+            return
+        self._position_saved_at = now
+        from podharvest import positions
+
+        positions.save(self.app_space.config_dir, path,
+                       self.player.playhead_ms(), self.player.length_ms())
+
+    def _selected_episode_audio(self):
+        """The audio for the highlighted episode, or None. Never asks.
+
+        A library row already knows its path, recorded when it was downloaded,
+        so it is used directly. Only a progress row -- mid-run, before the
+        library has been rebuilt -- has to be matched by title.
+        """
+        from pathlib import Path
+
+        from podharvest import tags as tags_mod
+
+        local = self._selected_local_file()
+        if local is not None:
+            return local.path
+        episode = self._selected_library_episode()
+        if episode is not None:
+            return episode.audio
+        title = self._selected_episode_title()
+        if not title:
+            return None
+        output = Path(self.output_ctrl.GetValue().strip() or ".")
+        return tags_mod.find_episode_audio(output, title)
+
+    def _build_source_box(self, panel: wx.Panel) -> wx.BoxSizer:
+        """Feed, or files you already have. The choice that shapes the window.
+
+        A radio box rather than a tab control or a pair of check boxes: it is
+        announced as one named group with a count ("Source, Podcast feed, 1 of
+        2"), arrow keys move between the two, and there is no way to end up
+        with both or neither. Changing it swaps the box below and relabels the
+        Start button, so the window always describes what it is about to do.
+        """
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.mode_radio = wx.RadioBox(
+            panel, label="Source",
+            choices=["Podcast &feed", "&Local files"],
+            majorDimension=2, style=wx.RA_SPECIFY_COLS)
+        self.mode_radio.SetToolTip(
+            "Podcast feed harvests a show from the internet. Local files works "
+            "on audio already on this machine -- a folder of recordings, an "
+            "audiobook, anything you have -- transcribing it, summarising it, "
+            "and letting you edit its tags and chapter markers. Everything "
+            "below applies to whichever you pick."
+        )
+        set_accessible_name(self.mode_radio, "Source")
+        self.mode_radio.SetSelection(
+            1 if self.settings.source_mode == "local" else 0)
+        self.mode_radio.Bind(wx.EVT_RADIOBOX, self._on_source_mode)
+        row.Add(self.mode_radio, 0, wx.RIGHT, 12)
+        return row
+
+    def source_mode(self) -> str:
+        """Which source the window is on: ``"feed"`` or ``"local"``."""
+        return "local" if self.mode_radio.GetSelection() == 1 else "feed"
+
+    def _build_local_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """Adding and removing the files to work on.
+
+        There is no second list here on purpose. The files you add appear in
+        the Episodes list below -- the same list that shows a harvest, and the
+        same list Play, Edit and Read the transcript already read from. A box
+        with its own list would mean two places to look and two things to keep
+        in step.
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Local files")
+        holder = box.GetStaticBox()
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        for label, handler, tip in (
+            ("&Add files...",
+             self._on_add_files,
+             "Choose one or more audio files. They appear in the Episodes list "
+             "below, where you can play them or edit their tags straight away "
+             "-- you do not have to press Start first."),
+            ("Add a &folder...",
+             self._on_add_folder,
+             "Choose a folder and take the audio in it. Subfolders are "
+             "included unless you turn that off in Settings."),
+            ("&Remove",
+             self._on_remove_files,
+             "Takes the highlighted file out of this list. Your file is not "
+             "deleted, moved or changed."),
+            ("&Clear list",
+             self._on_clear_files,
+             "Empties the list. Your files are not touched."),
+        ):
+            btn = wx.Button(holder, label=label)
+            btn.SetToolTip(tip)
+            btn.Bind(wx.EVT_BUTTON, handler)
+            row.Add(btn, 0, wx.RIGHT, 6)
+            self._local_buttons.append(btn)
+        box.Add(row, 0, wx.ALL, 8)
+
+        self.local_summary = wx.StaticText(
+            holder, label="No files added yet.")
+        set_accessible_name(self.local_summary, "Files added")
+        box.Add(self.local_summary, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        return box
+
+    # -- adding and removing local files ----------------------------------
+
+    def _on_add_files(self, _evt=None) -> None:
+        from podharvest import localfiles
+
+        with wx.FileDialog(
+            self, "Choose audio files", wildcard=localfiles.WILDCARD,
+            style=wx.FD_OPEN | wx.FD_MULTIPLE | wx.FD_FILE_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            self._add_local([Path(p) for p in dlg.GetPaths()])
+
+    def _on_add_folder(self, _evt=None) -> None:
+        with wx.DirDialog(
+            self, "Choose a folder of audio",
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            self._add_local([Path(dlg.GetPath())])
+
+    def _add_local(self, paths) -> None:
+        """Take what was chosen, expand folders, and say what arrived.
+
+        Said in the log rather than a dialog: adding files is something you do
+        several times in a row, and a modal after each one would be in the way.
+        """
+        from podharvest import localfiles
+
+        before = len(self._local_paths)
+        found = localfiles.collect(paths, recursive=self.settings.local_recurse_folders)
+        known = {str(p).lower() for p in self._local_paths}
+        added = [p for p in found if str(p).lower() not in known]
+        self._local_paths.extend(added)
+        if not added:
+            LOG.info("Nothing new to add: %s",
+                     "podHarvest found no audio it recognises there."
+                     if not found else "those files are already in the list.")
+        else:
+            LOG.info("Added %d file(s); %d in the list.", len(added),
+                     len(self._local_paths))
+        if len(self._local_paths) != before:
+            if self.source_mode() != "local":
+                self.mode_radio.SetSelection(1)
+                self._apply_source_mode()
+            else:
+                self.refresh_local_list()
+
+    def _on_remove_files(self, _evt=None) -> None:
+        item = self._local_rows.get(self.episode_list.GetFirstSelected())
+        if item is None:
+            LOG.info("Highlight a file in the Episodes list first, then press "
+                     "Remove. Your files are never deleted by this.")
+            return
+        self._local_paths = [p for p in self._local_paths if p != item.path]
+        LOG.info("Removed %s from the list. The file itself is untouched.",
+                 item.path.name)
+        self.refresh_local_list()
+
+    def _on_clear_files(self, _evt=None) -> None:
+        if not self._local_paths:
+            return
+        count = len(self._local_paths)
+        self._local_paths = []
+        LOG.info("Cleared %d file(s) from the list. None of them were touched.",
+                 count)
+        self.refresh_local_list()
+
+    def refresh_local_list(self) -> None:
+        """Show the added files in the Episodes list, with what each has.
+
+        Reads each file's tags, length and chapter count, and looks for a
+        transcript beside it -- so somebody who has run podHarvest over this
+        folder before can see that at a glance and skip it.
+        """
+        from podharvest import localfiles
+
+        if self._worker is not None and self._worker.is_alive():
+            return  # a run owns the list
+        beside = self.settings.local_transcripts_beside_file
+        output = Path(self.output_ctrl.GetValue().strip() or ".")
+        self.episode_list.DeleteAllItems()
+        self._episode_rows = {}
+        self._library_rows = {}
+        self._local_rows = {}
+        self._set_columns(_LOCAL_COLUMNS)
+        for path in self._local_paths:
+            item = localfiles.describe(path, beside=beside, output_dir=output)
+            row = self.episode_list.InsertItem(
+                self.episode_list.GetItemCount(), path.name)
+            self.episode_list.SetItem(row, 1, item.display_title)
+            self.episode_list.SetItem(row, 2, item.what_it_has())
+            self.episode_list.SetItem(row, 3, str(path.parent))
+            self.episode_list.SetItem(
+                row, 4, spoken_duration(item.duration_seconds)
+                if item.duration_seconds else "")
+            self._local_rows[row] = item
+        count = len(self._local_paths)
+        self.local_summary.SetLabel(
+            "No files added yet." if not count else
+            f"{count} file{'s' if count != 1 else ''} ready. "
+            "They are listed below; press Start to transcribe them.")
+        self._on_episode_selected()
+
+    def _on_source_mode(self, _evt=None) -> None:
+        self._apply_source_mode()
+        self.settings.source_mode = self.source_mode()
+        config_mod.save(self.app_space, self.settings)
+
+    def _apply_source_mode(self, *, refresh: bool = True) -> None:
+        """Swap the window over to whichever source is chosen.
+
+        Three things change together, and they have to: the input box above,
+        the Start button's wording, and what the Episodes list is showing.
+        Leaving any one of them behind would have the window describing work
+        it is not about to do.
+        """
+        local = self.source_mode() == "local"
+        self._outer.Show(self._feed_box, not local, recursive=True)
+        self._outer.Show(self._local_box, local, recursive=True)
+        # Downloading is a feed idea; a local file is already here.
+        self.chk_download.Enable(not local)
+        self.start_btn.SetLabel("&Start" if not local else "&Start on these files")
+        set_accessible_name(self.start_btn,
+                            self.start_btn.GetLabel().replace("&", ""))
+        self.start_btn.SetToolTip(
+            "Begin the harvest. Everything above is saved first."
+            if not local else
+            "Transcribe the files in the list, summarise them and add chapter "
+            "markers, following the options above. Files that already have a "
+            "transcript are left alone."
+        )
+        # Skipped while the window is still being built: the output folder
+        # has not been read out of the settings yet, so a refresh then would
+        # scan the wrong folder and say so in the log.
+        if refresh:
+            if local:
+                self.refresh_local_list()
+            else:
+                self.refresh_library()
+        self._outer.Layout()
+        self.Layout()
 
     def _build_feed_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Feed")
         holder = box.GetStaticBox()
-        grid = wx.FlexGridSizer(2, 3, 8, 8)
+        grid = wx.FlexGridSizer(1, 3, 8, 8)
         grid.AddGrowableCol(1, 1)
 
         url_label = wx.StaticText(holder, label="Feed &URL:")
         self.url_ctrl = wx.TextCtrl(holder, value="")
+        self.url_ctrl.SetToolTip(
+            "The podcast's address. The show's ordinary web page usually works too -- "
+            "podHarvest will find the feed itself."
+        )
         set_accessible_name(self.url_ctrl, "Feed URL")
         # The tooltip belongs on the control, not the label: a StaticText never
         # takes focus, so a keyboard user would never encounter it there.
@@ -694,10 +1625,33 @@ class MainFrame(wx.Frame):
         grid.Add(self.url_ctrl, 1, wx.EXPAND)
         grid.Add(wx.StaticText(holder, label=""))
 
+        box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+        return box
+
+    def _build_output_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """Where the library lives. Shown for both sources, because both use it.
+
+        A harvest is written here. Local files are not -- their transcripts go
+        beside the audio unless you say otherwise in Settings -- but this is
+        still the folder the Episodes list reads when it is showing your
+        library, so it never goes away.
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Library folder")
+        holder = box.GetStaticBox()
+        grid = wx.FlexGridSizer(1, 3, 8, 8)
+        grid.AddGrowableCol(1, 1)
+
         out_label = wx.StaticText(holder, label="&Output folder:")
         self.output_ctrl = wx.TextCtrl(holder, value=str(self.app_space.default_output_dir))
+        self.output_ctrl.SetToolTip(
+            "The folder your library is built in. One subfolder per podcast, one entry per "
+            "episode; everything stays a normal file you own."
+        )
         set_accessible_name(self.output_ctrl, "Output folder")
         browse = wx.Button(holder, label="B&rowse...")
+        browse.SetToolTip(
+            "Picks the folder with the system folder chooser."
+        )
         browse.Bind(wx.EVT_BUTTON, self._on_browse_output)
         grid.Add(out_label, 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.output_ctrl, 1, wx.EXPAND)
@@ -712,13 +1666,24 @@ class MainFrame(wx.Frame):
 
         left = wx.BoxSizer(wx.VERTICAL)
         self.chk_download = wx.CheckBox(holder, label="&Download enclosures (audio/video/etc.)")
+        self.chk_download.SetToolTip(
+            "Downloads each episode's audio. Without it you get the show notes and feed data "
+            "but nothing to listen to or transcribe."
+        )
         self.chk_download.SetValue(True)
         self.chk_transcribe = wx.CheckBox(holder, label="&Transcribe downloaded audio on-device")
+        self.chk_transcribe.SetToolTip(
+            "Turns each downloaded episode into a written transcript on this machine. This is "
+            "the slow part of a run; the model picker beside it says how slow."
+        )
         self.chk_transcribe.Bind(wx.EVT_CHECKBOX, self._on_toggle_transcribe)
         limit_row = wx.BoxSizer(wx.HORIZONTAL)
         limit_row.Add(wx.StaticText(holder, label="Limit episodes (0 = all):"), 0,
                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.limit_ctrl = wx.SpinCtrl(holder, min=0, max=100000, initial=0)
+        self.limit_ctrl.SetToolTip(
+            "How many episodes to fetch, newest first. Zero means every episode in the feed."
+        )
         set_accessible_name(self.limit_ctrl, "Episode limit")
         limit_row.Add(self.limit_ctrl, 0)
         left.Add(self.chk_download, 0, wx.BOTTOM, 6)
@@ -736,10 +1701,18 @@ class MainFrame(wx.Frame):
             right_holder, label="Show models that run",
             choices=["&All", "On this &machine", "In the c&loud"],
             majorDimension=3, style=wx.RA_SPECIFY_COLS)
+        self.source_radio.SetToolTip(
+            "Which models the picker offers: everything, only those that run on this machine, "
+            "or only cloud ones. Cloud models need an API key and are disabled without one."
+        )
         set_accessible_name(self.source_radio, "Show models that run")
         self.source_radio.Bind(wx.EVT_RADIOBOX, self._on_source_changed)
 
         self.model_choice = wx.Choice(right_holder)
+        self.model_choice.SetToolTip(
+            "Which model writes the transcripts. The box below says what it will cost you in "
+            "time for the podcast you have loaded."
+        )
         set_accessible_name(self.model_choice, "Transcription model")
         self.model_choice.Bind(wx.EVT_CHOICE, self._on_model_changed)
 
@@ -747,18 +1720,38 @@ class MainFrame(wx.Frame):
         # through line by line. A tooltip cannot be read that way, and a
         # StaticText cannot take focus at all.
         self.model_info = wx.TextCtrl(
-            right_holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
-            size=(-1, 150))
+            right_holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        # The longest of the three: it holds several sentences about speed,
+        # accuracy and download size, and scrolling to read an answer you
+        # asked for is worse than a slightly taller box.
+        size_for_text(self.model_info, lines=10)
+        self.model_info.SetToolTip(
+            "What the selected transcription model will cost you in time for the podcast you "
+            "have loaded, measured on this machine where possible. Read-only."
+        )
         set_accessible_name(self.model_info, "About the selected model")
         self.chk_timestamps = wx.CheckBox(right_holder, label="&Include timestamps")
+        self.chk_timestamps.SetToolTip(
+            "Puts a clock time against each line of the transcript, so a passage can be found "
+            "in the audio."
+        )
         self.chk_timestamps.SetValue(True)
         self.chk_timestamps.Bind(wx.EVT_CHECKBOX, self._on_toggle_timestamp_style)
         self.chk_speakers = wx.CheckBox(right_holder, label="Identify spea&kers (diarization)")
+        self.chk_speakers.SetToolTip(
+            "Works out who is speaking and labels each line. Adds time, and needs a Hugging "
+            "Face token for the pyannote models unless you use a cloud provider that labels "
+            "speakers itself."
+        )
         self.chk_speakers.Bind(wx.EVT_CHECKBOX, self._on_toggle_speaker_style)
 
         ts_row = wx.BoxSizer(wx.HORIZONTAL)
         ts_row.Add(wx.StaticText(right_holder, label="Timestamp style:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.timestamp_style_choice = wx.Choice(right_holder, choices=["[00:00:00] bracket", "(00:00:00) paren"])
+        self.timestamp_style_choice.SetToolTip(
+            "How a timestamp is written in the transcript: in square brackets or in "
+            "parentheses."
+        )
         set_accessible_name(self.timestamp_style_choice, "Timestamp style")
         self.timestamp_style_choice.SetSelection(0)
         ts_row.Add(self.timestamp_style_choice, 1)
@@ -767,6 +1760,10 @@ class MainFrame(wx.Frame):
         sp_row.Add(wx.StaticText(right_holder, label="Speaker label style:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.speaker_style_choice = wx.Choice(
             right_holder, choices=["**Speaker:** bold", "Speaker: plain", "(Speaker) inline"])
+        self.speaker_style_choice.SetToolTip(
+            "How a speaker's name is written in the transcript: bold, plain, or inline in the "
+            "line."
+        )
         set_accessible_name(self.speaker_style_choice, "Speaker label style")
         self.speaker_style_choice.SetSelection(0)
         sp_row.Add(self.speaker_style_choice, 1)
@@ -785,11 +1782,19 @@ class MainFrame(wx.Frame):
             "them as a list you can jump through. The audio is copied, not re-encoded, "
             "so nothing is lost and the file barely changes size.")
         self.chk_paragraphs = wx.CheckBox(right_holder, label="Group into &paragraphs (merge same-speaker lines)")
+        self.chk_paragraphs.SetToolTip(
+            "Merges consecutive lines from the same speaker into paragraphs, which reads "
+            "better than one line per phrase."
+        )
 
         width_row = wx.BoxSizer(wx.HORIZONTAL)
         width_row.Add(wx.StaticText(right_holder, label="Wrap plain text at (0 = no wrap):"), 0,
                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.line_width_ctrl = wx.SpinCtrl(right_holder, min=0, max=400, initial=0)
+        self.line_width_ctrl.SetToolTip(
+            "Wraps the plain-text transcript at this many characters. Zero leaves the lines "
+            "unwrapped."
+        )
         set_accessible_name(self.line_width_ctrl, "Plain text line width")
         width_row.Add(self.line_width_ctrl, 0)
 
@@ -826,6 +1831,10 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.hw_text = wx.StaticText(holder, label="Probing hardware...")
         self._refresh_btn = refresh_btn = wx.Button(holder, label="R&e-detect")
+        refresh_btn.SetToolTip(
+            "Probes this machine's processor, memory and graphics again, and refreshes which "
+            "models it recommends."
+        )
         refresh_btn.Bind(wx.EVT_BUTTON, lambda evt: self.refresh_hardware(force=True))
         row.Add(self.hw_text, 1, wx.EXPAND | wx.RIGHT, 8)
         row.Add(refresh_btn, 0)
@@ -835,9 +1844,16 @@ class MainFrame(wx.Frame):
     def _build_action_row(self, panel: wx.Panel) -> wx.BoxSizer:
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.start_btn = wx.Button(panel, label="&Start")
+        self.start_btn.SetToolTip(
+            "Begins the run with the settings above. The Episodes list fills in as it goes, "
+            "and this button becomes Open output folder when it finishes."
+        )
         self.start_btn.Bind(wx.EVT_BUTTON, self._on_start)
         self.start_btn.Disable()  # re-enabled once the first hardware probe completes
         self.cancel_btn = wx.Button(panel, label="&Cancel")
+        self.cancel_btn.SetToolTip(
+            "Stops the run at the next safe point. Work already finished stays on disk."
+        )
         self.cancel_btn.Bind(wx.EVT_BUTTON, self._on_cancel)
         self.cancel_btn.Disable()
         self.start_btn.SetDefault()
@@ -885,6 +1901,7 @@ class MainFrame(wx.Frame):
         s.write_chapters = self.chk_chapters.GetValue()
         s.chapters_into_audio = self.chk_chapters_audio.GetValue()
         s.model_filter = self._SOURCES[self.source_radio.GetSelection()]
+        s.source_mode = self.source_mode()
         s.transcript_max_line_chars = self.line_width_ctrl.GetValue() or None
         selection = self.model_choice.GetSelection()
         if selection != wx.NOT_FOUND:
@@ -930,6 +1947,15 @@ class MainFrame(wx.Frame):
             dlg.apply_to(self.settings)
         config_mod.save(self.app_space, self.settings)
         self._wire_file_logging()
+        # The transport reads its skip amounts and its speeds at construction,
+        # so tell it about both.
+        self.player.set_skip_steps(
+            self.settings.skip_back_ms, self.settings.skip_forward_ms)
+        self.player.set_rates(self.settings.playback_rates)
+        # Where local transcripts go decides what the list says each file
+        # already has, so it is rebuilt rather than left saying the old answer.
+        if self.source_mode() == "local":
+            self.refresh_local_list()
         # A key may have just been added or removed, which changes whether the
         # source picker is usable and which models the list can offer.
         was_available = bool(self._cloud_models)
@@ -1076,10 +2102,25 @@ class MainFrame(wx.Frame):
 
     # -- run progress -----------------------------------------------------
 
+    def _run_noun(self, count: int = 1) -> str:
+        """"episode" or "file", whichever this run is actually about.
+
+        A run over a folder of recordings that reports "12 episodes finished"
+        is describing something that did not happen. The word is read aloud
+        with every progress update, so it is worth getting right.
+        """
+        word = "file" if self.source_mode() == "local" else "episode"
+        return word if count == 1 else word + "s"
+
     def _reset_progress(self) -> None:
         self.episode_list.DeleteAllItems()
         self._episode_rows = {}
         self._episode_percent = {}
+        # The list stops being the library -- or the local file list -- the
+        # moment a run owns it.
+        self._library_rows = {}
+        self._local_rows = {}
+        self._set_columns(_RUN_COLUMNS)
         self._counts = {"done": 0, "failed": 0, "skipped": 0}
         self.progress.SetValue(0)
         self._set_progress_text("Starting...")
@@ -1122,16 +2163,19 @@ class MainFrame(wx.Frame):
             self.episode_list.EnsureVisible(row)
             finished = sum(self._counts.values())
             self._set_progress_text(
-                f"{finished} of {prog.total} episodes finished, {overall}% of everything. "
+                f"{finished} of {prog.total} {self._run_noun(prog.total)} finished, "
+                f"{overall}% of everything. "
                 f"Last: '{prog.title}' - {prog.state_label.lower()} in "
                 f"{spoken_duration(prog.elapsed)}.")
         elif prog.state in {"transcribing", "summarising"}:
             doing = ("transcribing" if prog.state == "transcribing"
                      else "writing the summary for")
             extra = f" ({prog.detail})" if prog.detail else ""
+            noun = self._run_noun()
             self._set_progress_text(
-                f"Episode {prog.index} of {prog.total} - {doing} '{prog.title}'{extra} - "
-                f"{prog.percent:.0f}% of this episode, {overall}% of everything.")
+                f"{noun.capitalize()} {prog.index} of {prog.total} - {doing} "
+                f"'{prog.title}'{extra} - {prog.percent:.0f}% of this {noun}, "
+                f"{overall}% of everything.")
         self.SetTitle(f"{overall}% - {DISPLAY_NAME} {__version__}")
 
     def _open_folder(self, path: str) -> None:
@@ -1196,25 +2240,18 @@ class MainFrame(wx.Frame):
         self.GetTopLevelParent().Layout()
 
     def _on_start(self, _evt) -> None:
+        if self.source_mode() == "local":
+            self._start_local()
+            return
         url = self.url_ctrl.GetValue().strip()
         if not url:
             wx.MessageBox("Please enter a feed URL.", "Missing URL", wx.OK | wx.ICON_WARNING)
             self.url_ctrl.SetFocus()
             return
 
-        model_choice = None
-        if self.chk_transcribe.GetValue():
-            selection = self.model_choice.GetSelection()
-            if selection == wx.NOT_FOUND or not self.model_choice.GetCount():
-                wx.MessageBox(
-                    "Transcription is enabled but no model is selected yet.\n\n"
-                    "Hardware detection may still be running, or it found no model that fits "
-                    "this machine. Click \"Re-detect\" and wait for the hardware summary to "
-                    "update, or uncheck \"Transcribe downloaded audio\" to continue without it.",
-                    "No transcription model selected", wx.OK | wx.ICON_WARNING)
-                self.model_choice.SetFocus()
-                return
-            model_choice = self.model_choice.GetClientData(selection)
+        model_choice = self._model_for_run()
+        if model_choice is False:
+            return
 
         output_dir = self.output_ctrl.GetValue().strip() or str(self.app_space.default_output_dir)
         limit = self.limit_ctrl.GetValue() or None
@@ -1238,6 +2275,104 @@ class MainFrame(wx.Frame):
             daemon=True,
         )
         self._worker.start()
+
+    def _start_local(self) -> None:
+        """Start on the files in the list.
+
+        The same run as a harvest from here on: the same models, the same
+        options, the same progress reporting, the same cancel button. What
+        differs is only that there is nothing to fetch.
+        """
+        if not self._local_paths:
+            wx.MessageBox(
+                "There are no files in the list yet.\n\n"
+                "Use \"Add files...\" to choose audio, or \"Add a folder...\" "
+                "to take everything in a folder.",
+                "Nothing to work on", wx.OK | wx.ICON_WARNING, self)
+            self._local_buttons[0].SetFocus()
+            return
+
+        model_choice = self._model_for_run()
+        if model_choice is False:
+            return
+
+        self._save_settings()
+        self.log_ctrl.Clear()
+        self._reset_progress()
+        # "Open output folder" afterwards should land somewhere useful. With
+        # transcripts written beside the audio, the first file's folder is that
+        # place; otherwise it is the library folder like any other run.
+        self._run_output_dir = (
+            str(self._local_paths[0].parent)
+            if self.settings.local_transcripts_beside_file
+            else self.output_ctrl.GetValue().strip()
+            or str(self.app_space.default_output_dir))
+        self._run_failed = None
+        self.start_btn.Disable()
+        for btn in self._local_buttons:
+            btn.Disable()
+        self._set_cancel_mode("cancel")
+        self.cancel_btn.Enable()
+        self._menu_cancel.Enable(True)
+        count = len(self._local_paths)
+        self._set_progress_text(
+            f"Starting on {count} file{'s' if count != 1 else ''}")
+        self._cancel_event.clear()
+
+        self._worker = threading.Thread(
+            target=self._run_local_worker,
+            args=(list(self._local_paths), self.chk_transcribe.GetValue(),
+                  model_choice, self.chk_timestamps.GetValue(),
+                  self.chk_speakers.GetValue()),
+            daemon=True,
+        )
+        self._worker.start()
+
+    def _model_for_run(self):
+        """The transcription model to use, None when not transcribing.
+
+        Returns False -- not None -- when the run must not start, so "no model
+        wanted" and "no model available" stay distinguishable to the caller.
+        """
+        if not self.chk_transcribe.GetValue():
+            return None
+        selection = self.model_choice.GetSelection()
+        if selection == wx.NOT_FOUND or not self.model_choice.GetCount():
+            wx.MessageBox(
+                "Transcription is enabled but no model is selected yet.\n\n"
+                "Hardware detection may still be running, or it found no model "
+                "that fits this machine. Click \"Re-detect\" and wait for the "
+                "hardware summary to update, or uncheck \"Transcribe "
+                "downloaded audio\" to continue without it.",
+                "No transcription model selected", wx.OK | wx.ICON_WARNING)
+            self.model_choice.SetFocus()
+            return False
+        return self.model_choice.GetClientData(selection)
+
+    def _run_local_worker(self, paths, transcribe, model_choice,
+                          timestamps, speakers) -> None:
+        try:
+            from podharvest.localfiles import run_local
+
+            run_local(
+                paths,
+                app=self.app_space,
+                settings=self.settings,
+                transcribe=transcribe,
+                model=model_choice,
+                include_timestamps=timestamps,
+                identify_speakers=speakers,
+                cancel_event=self._cancel_event,
+                progress_callback=lambda pct: wx.CallAfter(
+                    self.progress.SetValue, int(pct)),
+                episode_callback=lambda prog: self._ui(
+                    self._on_episode_progress, prog),
+            )
+        except Exception as exc:  # noqa: BLE001 - surface everything to the log
+            LOG.exception("The run stopped with an error: %s", exc)
+            self._run_failed = str(exc)
+        finally:
+            wx.CallAfter(self._finish_worker)
 
     def _set_cancel_mode(self, mode: str) -> None:
         """The second button is 'Cancel' during a run and 'Open output folder'
@@ -1285,7 +2420,17 @@ class MainFrame(wx.Frame):
 
     def _finish_worker(self) -> None:
         self.start_btn.Enable()
+        for btn in self._local_buttons:
+            btn.Enable()
         self._menu_cancel.Enable(False)
+        # The run is over, so the list goes back to being the library -- or
+        # the local file list -- which now includes everything this run just
+        # produced.
+        self._worker = None
+        if self.source_mode() == "local":
+            self.refresh_local_list()
+        else:
+            self.refresh_library()
         cancelled = self._cancel_event.is_set()
         done = self._counts.get("done", 0)
         failed = self._counts.get("failed", 0)
@@ -1298,17 +2443,24 @@ class MainFrame(wx.Frame):
             icon = wx.ICON_ERROR
         elif cancelled:
             headline = "Run cancelled."
-            body = (f"You stopped the run. {done} episode(s) finished before it stopped "
-                    "and those files are complete.")
+            body = (f"You stopped the run. {done} {self._run_noun(done)} finished "
+                    "before it stopped, and those files are complete.")
             icon = wx.ICON_INFORMATION
         else:
             headline = "Finished."
-            parts = [f"{done} episode(s) finished"]
+            parts = [f"{done} {self._run_noun(done)} finished"]
             if failed:
                 parts.append(f"{failed} failed")
             if skipped:
                 parts.append(f"{skipped} skipped")
-            body = ", ".join(parts) + f".\n\nEverything is in:\n{self._run_output_dir}"
+            where = (self._run_output_dir if self._run_output_dir
+                     else "the folders your files are in")
+            body = ", ".join(parts) + (
+                f".\n\nEverything is in:\n{where}"
+                if self.source_mode() != "local"
+                or not self.settings.local_transcripts_beside_file
+                else ".\n\nEach transcript is beside its audio file. The first "
+                     f"of them is in:\n{where}")
             icon = wx.ICON_WARNING if failed else wx.ICON_INFORMATION
 
         self.progress.SetValue(100 if not cancelled and not self._run_failed
@@ -1338,7 +2490,51 @@ class MainFrame(wx.Frame):
         self._set_progress_text("Stopping after the current episode...")
         LOG.warning("Stopping at your request. The episode in progress will finish first.")
 
+    # -- system tray -------------------------------------------------------
+
+    def _setup_tray(self) -> None:
+        """A tray icon, so a long run can get out of the way.
+
+        A hundred episodes is an afternoon. Leaving a window on the taskbar for
+        an afternoon to watch a progress bar is not a good use of it, so the
+        window can be tucked away and the run carries on regardless -- closing
+        to the tray is *not* the default, because a window that vanishes when
+        you press the close button is a window people think they have quit.
+        """
+        try:
+            self._tray = _TrayIcon(self)
+        except Exception as exc:  # noqa: BLE001 - no tray on this desktop
+            self._tray = None
+            LOG.debug("No system tray available here (%s); the window stays "
+                      "on the taskbar.", exc)
+
+    def _on_minimise_to_tray(self, _evt=None) -> None:
+        """Hide the window; the tray icon brings it back."""
+        if self._tray is None:
+            LOG.info("There is no system tray on this desktop, so the window "
+                     "stays where it is.")
+            return
+        self.Hide()
+        LOG.info("podHarvest is still running, in the notification area. "
+                 "Double-click its icon, or use its menu, to bring it back.")
+
+    def restore_from_tray(self) -> None:
+        """Bring the window back and put focus somewhere useful."""
+        if not self.IsShown():
+            self.Show()
+        if self.IsIconized():
+            self.Iconize(False)
+        self.Raise()
+        self.episode_list.SetFocus()
+
     def _on_close(self, evt) -> None:
+        # The last few seconds matter here, so this write is not throttled.
+        self._remember_playback_position(force=True)
+        self.player.shutdown()
+        if getattr(self, "_tray", None) is not None:
+            self._tray.RemoveIcon()
+            self._tray.Destroy()
+            self._tray = None
         self._cancel_event.set()
         self._save_settings()
         if self._log_handler in LOG.handlers:
@@ -1348,6 +2544,176 @@ class MainFrame(wx.Frame):
             self._file_log_handler.close()
             self._file_log_handler = None
         evt.Skip()
+
+
+class _BugReportDialog(wx.Dialog):
+    """The report, in full, before anything leaves the machine.
+
+    Read-only and multi-line so it is a real tab stop that can be arrowed
+    through line by line -- somebody should be able to check what they are
+    about to send, and a wall of text nobody can review is not consent.
+
+    Three ways out, none of which is "send": copy it, save it, or open a
+    pre-filled email. Closing the window does nothing at all.
+    """
+
+    def __init__(self, parent: wx.Window, report: str) -> None:
+        super().__init__(parent, title="Report a bug",
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        help_mod.install(self)
+        self._report = report
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(wx.StaticText(self, label=(
+            "This is everything the report contains. Nothing has been sent, and "
+            "nothing will be unless you choose to send it. API keys, home folder "
+            "names and email addresses have been removed.")),
+            0, wx.ALL, 10)
+
+        root.Add(wx.StaticText(self, label="What went wrong (optional):"), 0,
+                 wx.LEFT | wx.RIGHT, 10)
+        self.what_happened = wx.TextCtrl(self, style=wx.TE_MULTILINE)
+        self.what_happened.SetToolTip(
+            "What you did, and what you expected instead. The most useful "
+            "sentence in any bug report, and the one only you can write."
+        )
+        set_accessible_name(self.what_happened, "What went wrong")
+        size_for_text(self.what_happened, lines=4)
+        self.what_happened.Bind(wx.EVT_TEXT, lambda _e: self._refresh())
+        root.Add(self.what_happened, 0, wx.EXPAND | wx.ALL, 10)
+
+        root.Add(wx.StaticText(self, label="The report:"), 0, wx.LEFT | wx.RIGHT, 10)
+        self.preview = wx.TextCtrl(
+            self, value=report, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        self.preview.SetToolTip(
+            "The whole report, exactly as it would be sent. Read-only: arrow "
+            "through it, or select and copy."
+        )
+        set_accessible_name(self.preview, "The report")
+        size_for_text(self.preview, lines=14)
+        root.Add(self.preview, 1, wx.EXPAND | wx.ALL, 10)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        copy_btn = wx.Button(self, label="&Copy to clipboard")
+        copy_btn.SetToolTip("Puts the whole report on the clipboard, ready to paste.")
+        copy_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_copy())
+        row.Add(copy_btn, 0, wx.RIGHT, 6)
+
+        save_btn = wx.Button(self, label="&Save to a file...")
+        save_btn.SetToolTip("Writes the report to a text file you choose.")
+        save_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_save())
+        row.Add(save_btn, 0, wx.RIGHT, 6)
+
+        email_btn = wx.Button(self, label="Open an &email...")
+        email_btn.SetToolTip(
+            f"Copies the report and opens a message to {SUPPORT_EMAIL} in your "
+            "mail program, ready for you to paste it in and send. Mail programs "
+            "truncate long links, so the report goes via the clipboard."
+        )
+        email_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_email())
+        row.Add(email_btn, 0, wx.RIGHT, 12)
+
+        close_btn = wx.Button(self, wx.ID_CANCEL, label="Close")
+        close_btn.SetToolTip("Closes this window. Nothing is sent.")
+        row.AddStretchSpacer()
+        row.Add(close_btn, 0)
+        root.Add(row, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.status = wx.StaticText(self, label="")
+        set_accessible_name(self.status, "Report status")
+        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        self.SetEscapeId(wx.ID_CANCEL)
+        self.SetSizer(root)
+        self.SetMinSize(wx.Size(640, 560))
+        self.Fit()
+        self.CentreOnParent()
+
+    def _refresh(self) -> None:
+        """Rebuild the report so the preview always matches what would be sent."""
+        from podharvest import feedback
+
+        described = self.what_happened.GetValue().strip()
+        if not described:
+            self.preview.SetValue(self._report)
+            return
+        head, sep, tail = self._report.partition("(describe what you did")
+        if sep:
+            _skip, _nl, rest = tail.partition("\n")
+            self.preview.SetValue(feedback.redact(head + described + "\n" + rest))
+        else:
+            self.preview.SetValue(self._report)
+
+    def _text(self) -> str:
+        return self.preview.GetValue()
+
+    def _say(self, message: str) -> None:
+        """Status changes on an unfocused label are what a reader misses."""
+        self.status.SetLabel(message)
+        LOG.info("%s", message)
+
+    def _on_copy(self) -> None:
+        if wx.TheClipboard.Open():
+            try:
+                wx.TheClipboard.SetData(wx.TextDataObject(self._text()))
+            finally:
+                wx.TheClipboard.Close()
+            self._say("The report is on the clipboard.")
+        else:
+            self._say("Could not reach the clipboard.")
+
+    def _on_save(self) -> None:
+        from pathlib import Path
+
+        with wx.FileDialog(
+            self, "Save the bug report", defaultFile="podharvest-bug-report.txt",
+            wildcard="Text files (*.txt)|*.txt",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            path = Path(dlg.GetPath())
+        try:
+            path.write_text(self._text(), encoding="utf-8")
+        except OSError as exc:
+            self._say(f"Could not save the report: {exc}")
+            return
+        self._say(f"Saved to {path.name}.")
+
+    def _on_email(self) -> None:
+        from podharvest import feedback
+
+        self._on_copy()
+        wx.LaunchDefaultBrowser(feedback.mailto_url(self._text()))
+        self._say(
+            f"Opened a message to {SUPPORT_EMAIL}. The report is on your "
+            "clipboard -- paste it into the message before sending."
+        )
+
+
+class _TrayIcon(wx.adv.TaskBarIcon):
+    """The notification-area icon: restore, and quit.
+
+    Deliberately two items and no more. A tray menu is a place people go when
+    the window is not in front of them, which is the worst moment to offer
+    them a choice they have to think about.
+    """
+
+    def __init__(self, frame: MainFrame) -> None:
+        super().__init__()
+        self._frame = frame
+        icon = wx.ArtProvider.GetIcon(wx.ART_INFORMATION, wx.ART_OTHER, (16, 16))
+        self.SetIcon(icon, f"{DISPLAY_NAME} -- still running")
+        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DCLICK, lambda _e: self._frame.restore_from_tray())
+
+    def CreatePopupMenu(self) -> wx.Menu:  # noqa: N802 - wx API casing
+        menu = wx.Menu()
+        show = menu.Append(wx.ID_ANY, f"&Show {DISPLAY_NAME}")
+        menu.AppendSeparator()
+        quit_item = menu.Append(wx.ID_EXIT, "&Quit")
+        self.Bind(wx.EVT_MENU, lambda _e: self._frame.restore_from_tray(), show)
+        self.Bind(wx.EVT_MENU, lambda _e: self._frame.Close(), quit_item)
+        return menu
 
 
 def run_gui() -> int:

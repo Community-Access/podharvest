@@ -23,6 +23,17 @@ a = Analysis(
     hiddenimports=[
         "wx",
         "wx.adv",
+        # wx.media backs the player. It is imported at the top of
+        # podharvest/player.py, but player.py itself is only reached lazily, so
+        # the tracer never sees either -- and a build without it has a Playback
+        # section that raises the moment you press Play.
+        "wx.media",
+        # Every tag and chapter operation runs on mutagen, and every one of its
+        # imports is lazy and inside a function (so the modules load without
+        # the extra). That is precisely what static analysis cannot follow.
+        "mutagen",
+        "mutagen.id3",
+        "mutagen.mp4",
         "podharvest.cli",
         "podharvest.gui",
         "podharvest.appspace",
@@ -44,6 +55,30 @@ a = Analysis(
         "podharvest.enrich",
         "podharvest.accuracy",
         "podharvest.benchmark",
+        "podharvest.chapters",
+        # Also reached lazily and also missing until now: without these, a
+        # built app cannot use a cloud provider, cannot show a time estimate,
+        # and cannot read a stored API key.
+        "podharvest.cloud",
+        "podharvest.estimate",
+        "podharvest.keystore",
+        # The tag and chapter editor, its player, and everything they stand on.
+        # All reached lazily from menu handlers, which is why they have to be
+        # named here: a build without them opens a window that raises.
+        "podharvest.a11y",
+        "podharvest.audio_tags_core",
+        "podharvest.editor",
+        "podharvest.feedback",
+        "podharvest.help",
+        "podharvest.library",
+        "podharvest.localfiles",
+        "podharvest.reader",
+        "podharvest.media_health",
+        "podharvest.player",
+        "podharvest.positions",
+        "podharvest.reuse",
+        "podharvest.reuse_core",
+        "podharvest.tags",
     ],
     hookspath=[],
     excludes=[

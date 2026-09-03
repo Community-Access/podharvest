@@ -18,13 +18,22 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Command-line usage](#command-line-usage)
+- [Working on local files](#working-on-local-files)
 - [The desktop GUI](#the-desktop-gui)
+  - [Two sources](#two-sources)
+  - [The library](#the-library)
+  - [Reading a transcript](#reading-a-transcript)
+  - [The Tag and Chapter Editor](#the-tag-and-chapter-editor)
+  - [Not doing the same work twice](#not-doing-the-same-work-twice)
 - [Supported on-device models](#supported-on-device-models)
 - [Validating accuracy and comparing models](#validating-accuracy-and-comparing-models)
 - [Settings reference](#settings-reference)
 - [Portable app space](#portable-app-space)
 - [Accessibility](#accessibility)
 - [Building a standalone installer](#building-a-standalone-installer)
+- [In-app help](#in-app-help)
+- [The rest of the documentation](#the-rest-of-the-documentation)
+- [Support](#support)
 - [Contributing](#contributing)
 - [Project structure](#project-structure)
 - [Roadmap](#roadmap)
@@ -41,8 +50,13 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 - **Hardware-aware model advisor** - probes your CPU, RAM, and GPU (CUDA/ROCm/Metal) and recommends a model that will actually run well, with a CPU-only fallback always available.
 - **Fully portable** - models, caches, logs, and config all live in one self-contained folder that can travel on a USB stick; nothing is installed into your home directory or global Python environment unless you choose the default location.
 - **Two front ends, one engine** - a full wxPython desktop GUI and a scriptable CLI, both driven by the same settings file and pipeline.
+- **Two sources, one pipeline** - a podcast feed, or audio already on your machine. Local files go through the same model selection, transcription, summarising, chapter inference and reuse rules as a harvested episode; `harvest.transcribe_all` is shared by both routes rather than reimplemented for either. This makes podHarvest usable as a standalone MP3 tag and chapter editor with transcription attached.
 - **Rich, persistent settings** - output folder, episode limits (a number, or "all"), download filters, ASR/enrichment choices, and output formats all persist between runs, shared by the CLI and the GUI.
-- **Keyboard-first and screen-reader-aware** - with an [accessibility statement](ACCESSIBILITY.md) that states plainly what has been verified and what has not.
+- **A library you can come back to** - open podHarvest and everything you have harvested is listed: the podcast, the episode, what you have for each. Play it, read its transcript, or edit its tags and chapters, without a run in progress.
+- **A player, not just a transcriber** - play any episode or local file from the main window with rewind, forward, volume, mute and speed. The speed list is a setting: 0.25x to 5x, defaulting to 0.5x-3x. Where you stopped is remembered per file and offered back.
+- **Full tag and chapter editing** - twenty-six tag fields plus cover art, and chapter markers you can add, delete, retime and nudge by ear against the audio.
+- **Nothing is generated twice** - a re-run keeps existing transcripts, takes the publisher's own when a feed offers one, and keeps chapter markers a person already wrote.
+- **Keyboard-first and screen-reader-aware** - every window answers F1, every control explains itself, and there is an [accessibility statement](ACCESSIBILITY.md) that states plainly what has been verified and what has not.
 
 ## Quick start
 
@@ -91,6 +105,7 @@ python main.py
 usage: podharvest [-h] [--version] [--app-dir PATH] [-v] [-q] [--log-file PATH] <command> ...
 
   fetch       Download and convert a feed (and its enclosures).
+  local       Transcribe, summarise and chapter audio you already have.
   hardware    Detect hardware and recommend an on-device transcription model.
   gui         Launch the wxPython desktop application.
   info        Show the portable app-space paths in use.
@@ -113,6 +128,18 @@ python main.py fetch https://acbda.org/feed --limit all
 # Re-use the last feed URL and saved settings
 python main.py fetch
 
+# Work on audio already on this machine: a folder, subfolders included
+python main.py local "D:\Lectures"
+
+# Specific files, with a chosen model
+python main.py local one.mp3 two.m4b --engine faster-whisper --model small.en
+
+# Transcripts into <output>/Local files instead of beside each audio file
+python main.py local "D:\Audio" --no-beside -o D:\Library
+
+# Just list what is there and what it already has; write nothing
+python main.py local "D:\Audio" --no-transcribe
+
 # See what hardware you have and which ASR model podharvest recommends
 python main.py hardware
 python main.py hardware --json
@@ -125,6 +152,75 @@ python main.py settings --reset
 
 Every subcommand accepts `-v`/`-vv` for more detailed logs, `-q` for warnings-only, `--log-file PATH` for a persistent log, and `--app-dir PATH` to point at a different portable app space.
 
+## Working on local files
+
+podHarvest's second source. Everything after the download is file-level work --
+transcribe, summarise, infer chapters, write tags -- and none of it needs a
+feed, so none of it requires one.
+
+**In the GUI:** set **Source** to **Local files** (or press Ctrl+O / Ctrl+Shift+F,
+which switch for you), add files or a folder, and press **Start on these files**.
+The added files appear in the Episodes list straight away with what each already
+has, so playing and editing work before any run.
+
+**On the command line:** `podharvest local <paths...>`.
+
+| Option | Meaning |
+|---|---|
+| `--no-transcribe` | List what was found and stop; write nothing |
+| `--engine`, `--model` | Which ASR engine and model to use |
+| `--beside` / `--no-beside` | Transcript next to the audio (default), or in `<output>/Local files/transcripts` |
+| `--no-recurse` | Given a folder, do not look in its subfolders |
+| `-o DIR` | Library folder; only used with `--no-beside` |
+| `--timestamps` / `--no-timestamps` | Timestamps in the transcript |
+| `--speakers` / `--no-speakers` | Speaker labels via diarization |
+| `--hf-token` | Hugging Face token for the gated pyannote models |
+
+### What it accepts
+
+`.mp3 .m4a .m4b .mp4 .aac .ogg .oga .opus .flac .wav .wma .aiff .aif .webm`
+
+Wider than the set podHarvest can *tag* (`.mp3 .m4a .m4b .mp4`): transcribing a
+`.wav` is perfectly reasonable even though there is nowhere on it to store a
+chapter marker. Files it does not recognise are skipped with a line in the log,
+never silently.
+
+A folder is walked depth-first in sorted order, subfolders included unless
+`local_recurse_folders` is off. Duplicates are dropped, so adding both a folder
+and a file inside it processes that file once. A folder holding more than
+`localfiles.MAX_SCAN` (5000) audio files stops at that many and says so in the
+log rather than walking what may be a whole drive.
+
+### Where the output goes
+
+Beside the audio by default: `lecture.mp3` produces `lecture.md`, `lecture.txt`
+and, if enabled, `lecture.srt` / `lecture.vtt` in the same folder. That keeps a
+file and its transcript together if the folder is later moved.
+
+With `local_transcripts_beside_file` off, they go to
+`<output_dir>/Local files/transcripts/<slug>.md` instead, and podHarvest never
+writes into your own folders. The name is slugified there because that folder is
+shared; beside the audio it is the audio file's own stem.
+
+Chapter markers and tags are written into the audio file either way -- that is
+where they belong, and for an MP3 only the tag block is rewritten.
+
+### What it never does
+
+Copy, move, rename, convert or delete your files. **Remove** takes a file out of
+the list, not off the disk. The only writes to your audio are the tag and
+chapter edits you ask for.
+
+### Shared with the feed route
+
+`podharvest.localfiles.run_local` builds `LocalEpisode` objects -- the minimal
+duck-type `transcribe_all` reads -- and hands them to
+`podharvest.harvest.transcribe_all`, the same function `run_harvest` calls. The
+only local-specific piece is the `layout` hook, which answers "where does this
+transcript go, and what is it called". Reuse, summaries, chapter inference,
+progress reporting, cancellation and per-file error isolation are therefore
+identical by construction rather than by intention.
+
 ## The desktop GUI
 
 `python main.py gui` (or `run.bat gui`) opens a resizable window with:
@@ -135,9 +231,118 @@ Every subcommand accepts `-v`/`-vv` for more detailed logs, `-q` for warnings-on
 - A **hardware** panel showing your CPU/RAM/GPU summary and the recommended model, with a re-detect button (Ctrl+D). If detection fails, transcription is switched off with an explanation and the rest of the app keeps working.
 - **Start/Cancel** buttons, a progress bar, and a readable activity log (Ctrl+L). The log does not announce itself - see [Accessibility](#accessibility).
 
-A File/View/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware.
+- A **Tag and Chapter Editor** (**Ctrl+T**, or Enter on an episode row): six pages holding every tag the audio file can carry plus its chapter markers, with a player for judging boundaries by ear. See below.
+
+A File/View/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware, **Ctrl+T** edit tags and chapters. **F1** anywhere explains the window you are in and the control you are on.
 
 Every field you change is remembered (via the same `settings.json` the CLI uses) and restored the next time you open the app.
+
+### Two sources
+
+At the top of the window, a `wx.RadioBox` labelled **Source** with **Podcast
+feed** and **Local files**. A radio box rather than tabs or check boxes: it is
+announced as one named group with a position ("Source, Podcast feed, 1 of 2"),
+arrow keys move between the two, and there is no state where both or neither is
+chosen.
+
+Changing it swaps three things together, so the window never describes work it
+is not about to do:
+
+- the input box below (Feed URL, or the Add/Remove buttons),
+- the Start button's label and its accessible name,
+- what the Episodes list is showing, and the list's column headings.
+
+The choice is saved as `source_mode` and restored at launch.
+
+### The library
+
+With no run in progress, the Episodes list is your library rather than a
+progress view. It is built at startup, rebuilt when a run finishes, and can be
+rebuilt on demand with **Ctrl+Shift+R**.
+
+Each show folder's `feed.json` is the source: a harvest already writes it, and
+it records every episode with the path of what was downloaded. That beats
+scanning filenames, because the naming template is configurable and a scanner
+inferring titles from slugs would get them wrong for exactly the shows with
+interesting titles. A folder with no `feed.json` — an interrupted first run, or
+one assembled by hand — still lists its audio, named from the file.
+
+The columns are Podcast, Episode, What you have, Published and Length. The
+headings change when a run takes the list over (to #, Episode, Status, Progress,
+Time), because a screen reader reads the heading with every cell.
+
+An episode whose file has since been deleted is listed without audio rather than
+offering a Play button that cannot work.
+
+### Reading a transcript
+
+**Ctrl+Shift+T** on a library row opens its transcript. Read-only — the
+transcript is a record of what was said, and an editable box would invite
+changes with nothing to say the file no longer matches the audio — with a Find
+box that reports which occurrence you are on and wraps at the end. **Copy all**
+puts the whole thing on the clipboard; **Open the file** hands it to whatever
+your system uses for text.
+
+Files larger than 8 MB are refused with a reason rather than loaded: that is far
+past any real transcript, and a reader that hangs is worse than one that says no.
+
+### The Tag and Chapter Editor
+
+Opened with **Ctrl+T**, or Enter on a row in the Episodes list. With no episode
+selected — including after a restart, when the list is empty — it opens a file
+picker on the output folder instead, so it always reaches a file.
+
+Six pages, moved between with Control+Tab:
+
+| Page | What is on it |
+|---|---|
+| Main | Title, subtitle, artist, album, album artist, track and disc (number of total), genre, year |
+| Details | Original release date, comment, lyrics or transcript, grouping, language, BPM, compilation flag |
+| Publishing | Composer, conductor, publisher, copyright, encoded by, ISRC |
+| Sort order | Sort title, artist, album and album artist — these change filing order, not what is displayed, and writing one moves the file to ID3v2.4 |
+| Cover art | The embedded image: described in words first, then shown; load, save out or remove |
+| Chapters | The chapter list, the transport, and the editing tools |
+
+Chapter operations: **Add** (at the playhead or a typed time; past the last
+chapter's end it appends), **Delete** (the marker only — the audio is never
+cut, and unlike a merge it works on the first and last chapters),
+**Edit** (title and exact start and end, plus the Podcasting 2.0 link and
+image), **Preview** (play this chapter and stop at its end), and **nudge**:
+Alt+Left and Alt+Right move the selected chapter's start by one step,
+Alt+Shift with them moves ten, and **Hear boundary** plays three seconds
+before the marker and two after it. The step is chosen from 100 ms to 10 s and
+remembered for next time.
+
+The transport: Play, Stop, Rewind and Forward ten seconds, volume, mute, and
+speed — the same list `playback_rates` gives the main window, so the two agree.
+Where the platform's media backend will not play at a particular speed,
+podHarvest says so, naming that speed, rather than leaving the control looking
+as though it worked.
+
+Formats: MP3 in full, and M4A/M4B/MP4 for every tag those containers have an
+atom for. Anything else is refused rather than half-supported.
+
+### Not doing the same work twice
+
+| Setting | Default | What it does |
+|---|---|---|
+| `reuse_transcripts` | `true` | Skips an episode whose transcript is already on disk. A re-run carries on where it stopped. The file is size-checked, so an interrupted run is redone rather than treated as finished. |
+| `use_feed_transcripts` | `true` | Takes the publisher's own `<podcast:transcript>` when the feed offers one, instead of transcribing words that already exist. When several formats are offered, the most capable wins — JSON, then WebVTT, then SRT, then HTML — rather than whichever the publisher happened to list first. |
+| `reuse_chapters` | `true` | Keeps chapter markers already in the file, or timestamps written in the show notes, instead of asking a model for new ones. Those carry titles a person wrote. |
+
+Turn any of them off to force a fresh pass — a better ASR model, changed
+settings, or a transcript you did not like. Reusing a transcript never skips
+the *summary*: an episode whose transcript already existed may never have had
+one, so the enrichment step still runs.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `preview_volume` | `70` | Playback volume, 0 to 100. Shared by the main window's player and the editor's. |
+| `preview_muted` | `false` | Whether playback starts muted. |
+| `skip_back_ms` | `10000` | How far Rewind and Ctrl+B jump back, in milliseconds. Clamped 1000-300000. |
+| `skip_forward_ms` | `10000` | How far Forward and Ctrl+F jump on. Separate from rewind: skipping an advert break usually wants a bigger jump than re-hearing a sentence. |
+| `remember_playback_position` | `true` | Remember the playhead per file and offer it back. Positions in the first ten seconds or the last thirty are not stored -- neither is a place you were coming back to. Kept in `playback-positions.json` beside the settings, bounded to 500 entries. |
+| `media_health_last_notice` | `""` | The FFmpeg state already reported, so a missing tool is mentioned once rather than at every launch — and again if it comes back and goes missing a second time. |
 
 ## Supported on-device models
 
@@ -337,6 +542,14 @@ In code, `podharvest.DISPLAY_NAME` holds the spoken form so it is defined once.
 | `write_markdown`/`write_html`/`write_text`/`write_json`/`write_csv`/`write_srt`/`write_vtt` | Which output formats to generate |
 | `naming_template` | Per-episode file naming. Placeholders: `{date}` `{slug}` `{title}` `{index}` `{season}` `{number}` `{year}` `{month}` `{day}` |
 | `log_verbosity` | Default `-v` level when none is given on the command line |
+| `source_mode` | Which source the main window opens on: `feed` or `local` |
+| `local_transcripts_beside_file` | Local-file transcripts next to the audio (default), or in `<output>/Local files` |
+| `local_recurse_folders` | Adding a folder includes its subfolders (default on) |
+| `playback_rates` | The speeds the player offers, as a list. 0.25-5.0; 1.0 is always kept. Default `[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]` |
+| `preview_volume`, `preview_muted` | Player volume, remembered across sessions and shared with the editor |
+| `skip_back_ms`, `skip_forward_ms` | How far Rewind and Forward jump, separately |
+| `remember_playback_position` | Pick an episode up where you left it |
+| `reuse_transcripts`, `use_feed_transcripts`, `reuse_chapters` | Whether existing work is kept rather than redone |
 
 Change any of them with `podharvest settings --set key=value` (repeatable). The GUI exposes the most commonly changed subset and writes to the same file; settings it does not show (download filters, concurrency, enrichment, output formats) are CLI-only for now.
 
@@ -383,6 +596,15 @@ The base command creates an isolated build environment, runs PyInstaller against
 
 Passing `-Inno` additionally compiles [`installer/podharvest.iss`](../installer/podharvest.iss) with [Inno Setup](https://jrsoftware.org/isinfo.php) into `dist/installer/podharvest-<version>-setup.exe` - a conventional installer with a Start Menu entry, optional desktop icon, and uninstaller. Unlike the portable zip, the installed copy correctly stores its models/cache/config under the current user's profile rather than trying to write into Program Files.
 
+**Inno Setup 7 is required**, not 6, for two reasons that are about this program in particular:
+
+- `SetupArchitecture=x64` produces a genuine 64-bit installer to match the 64-bit application it wraps, and brings high-entropy ASLR with it. Inno Setup 6 has no such directive and would fail on it.
+- Extended-length path support removes the `MAX_PATH` limit throughout Setup and Uninstall. podharvest builds deep trees out of titles a publisher chose — `<output>/<show>/transcripts/<long-episode-slug>.md` — and long-path limits are named in [SECURITY.md](../SECURITY.md) as a real source of bugs here.
+
+The build script checks the version with `ISCC --version` (itself a 7-only option) and says so plainly rather than letting the compile fail later on an unknown directive. It compiles with `--messages-jsonl`, which puts errors and warnings on stderr as JSON Lines for a CI job to read without parsing prose.
+
+Version 7 installs alongside 6 rather than replacing it, and winget puts it under `%LOCALAPPDATA%\Programs\Inno Setup 7`; the script looks there first.
+
 The resulting `podharvest.exe` (either build) keeps all of its models/cache/config in one folder - for the portable build, copy that folder anywhere (including a USB drive) and it keeps working.
 
 ## Project structure
@@ -403,7 +625,22 @@ podharvest/
   enrich.py                Optional LLM transcript enrichment (summary + chapter titles) via llama-cpp-python
   accuracy.py              Word Error Rate (WER) scoring
   benchmark.py             Side-by-side engine/model timing + accuracy comparison
-  harvest.py               Orchestrates feed -> render -> download -> transcribe (what fetch/GUI Start call)
+  harvest.py               Orchestrates feed -> render -> download -> transcribe (what fetch/GUI Start call); transcribe_all is shared with the local-files route
+  localfiles.py            The second source: audio already on this machine, given the same treatment as an episode
+  library.py               Reads the output folder back as a browsable library
+  reader.py                Read-only, searchable transcript window
+  editor.py                The Tag and Chapter Editor
+  player.py                The transport: play/pause, rewind, forward, volume, speed
+  tags.py                  Tag and chapter reading/writing (adapter over audio_tags_core)
+  audio_tags_core.py       Vendored byte-identical from QUILL: tag fields, cover art, CHAP/CTOC
+  reuse.py                 What already exists, so nothing is produced twice
+  reuse_core.py            Vendored byte-identical from QUILL: transcript ranking, show-note chapters
+  positions.py             Where you stopped in each file
+  help.py                  F1 help: what this window is for, what this control does
+  help_audit.py            The build gate that keeps every control explained
+  a11y.py                  Accessible names and font-relative sizing
+  feedback.py              The bug report the Help menu builds
+  media_health.py          Whether FFmpeg is present, and what its absence costs
   net.py                   Resilient HTTP client (retries, resume, rate limiting)
   convert.py               Dependency-free HTML <-> Markdown/plain-text conversion
   models.py                Feed/Episode/Enclosure data model
@@ -444,6 +681,67 @@ tests/                     Test suite (pytest)
 - [ ] Spoken progress announcements in the GUI via a screen-reader speech bridge
 - [ ] Harden XML parsing against entity-expansion denial of service
 - [ ] Cryptographic hash pinning for downloaded models
+
+## In-app help
+
+**F1** answers anywhere in the program: what the window is for, then the focused
+control's name, the sentence written for it, and how to drive a control of that
+kind. Every focusable control carries a sentence, units and defaults included --
+84 construction sites at the time of writing, and the audit prints the count so
+the figure never has to be guessed from a document.
+
+The implementation is worth knowing if you are extending the program:
+
+- `podharvest/help.py` holds the engine and `PURPOSES`, the catalogue of window
+  purposes keyed by title (prefix-matched, so a title carrying live data still
+  resolves). A window with no authored purpose falls back to an honest generic
+  sentence rather than to silence.
+- Help is authored **inline at the construction site**, with
+  `SetToolTip`/`SetHelpText` or `help.explain(ctrl, text)`, which sets both.
+  That is the only place an audit can verify it.
+- `podharvest/help_audit.py` AST-scans the wx modules and fails the build on a
+  control with nothing authored. Run it with
+  `python -m podharvest.help_audit`, and re-record the reviewed snapshot with
+  `--write`.
+- `help.ensure_help_provider()` is called by `help.install()`. Without a
+  `wx.HelpProvider`, every `SetHelpText` in the program silently stores nothing
+  and `GetHelpText` answers `""` — measured, not assumed.
+
+Adding a window means calling `help.install(self)` in its constructor and adding
+its title to `PURPOSES`. A test enforces the first by walking every
+`wx.Dialog`/`wx.Frame` subclass.
+
+## The rest of the documentation
+
+| Document | What it is for |
+|---|---|
+| [Your first podcast](GETTING_STARTED.md) | One complete run, start to finish, for somebody who has just installed it |
+| [README](../README.md) | Everyday use: playing, reading, the keyboard, common problems |
+| This reference | Every command, flag, setting and output format; the library, the editor, the reuse rules; building an installer |
+| [Model catalogue](MODELS.md) | Each model's accuracy, speed, size and licence |
+| [Accessibility statement](ACCESSIBILITY.md) | What has been verified with which screen reader, and what has not |
+| [Security policy](../SECURITY.md) | The trust model, and where the real risk is |
+| [Contributing](../CONTRIBUTING.md) | How to help, and the gates a change has to pass |
+| [Changelog](../CHANGELOG.md) | What changed, and why |
+
+All of them are installed with the program and listed in its Start Menu group.
+
+## Support
+
+**support@community-access.org.**
+
+**Help ▸ Report a bug** builds the report for you — version, platform, FFmpeg,
+hardware, the settings that differ from the defaults, and the tail of the
+activity log — redacts keys, home folder names and email addresses, and shows
+you the whole thing before anything is sent. Nothing leaves the machine unless
+you choose to send it; `podharvest/feedback.py` contains no network code and a
+test asserts it imports nothing that could reach the network.
+
+Bugs and feature requests can also go to
+[GitHub issues](https://github.com/community-access/podharvest/issues).
+Security problems go through
+[GitHub Security Advisories](https://github.com/community-access/podharvest/security/advisories/new)
+instead — see the [security policy](../SECURITY.md).
 
 ## Contributing
 

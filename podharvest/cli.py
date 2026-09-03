@@ -118,6 +118,40 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Wrap the plain-text transcript at N characters (0 = no wrapping).")
     _add_common(p_fetch)
 
+    p_local = sub.add_parser(
+        "local", help="Transcribe, summarise and chapter audio you already have.",
+        description="Work on local audio files or folders: transcribe them, "
+                    "write summaries, work out chapter markers and put them "
+                    "into the file's tags. The same pipeline 'fetch' uses "
+                    "after the download, without the feed.")
+    p_local.add_argument("paths", nargs="+", metavar="PATH",
+                         help="Audio files, or folders of them.")
+    p_local.add_argument("--no-transcribe", action="store_true",
+                         help="List what was found and stop; write nothing.")
+    p_local.add_argument("--engine", metavar="ENGINE",
+                         help="ASR engine to use, e.g. faster-whisper, parakeet.")
+    p_local.add_argument("--model", metavar="MODEL",
+                         help="ASR model to use, e.g. small.en.")
+    p_local.add_argument("--beside", dest="beside", action="store_true", default=None,
+                         help="Write each transcript beside its audio file (default).")
+    p_local.add_argument("--no-beside", dest="beside", action="store_false",
+                         help="Write transcripts into <output>/Local files instead.")
+    p_local.add_argument("--no-recurse", action="store_true",
+                         help="When given a folder, do not look in its subfolders.")
+    p_local.add_argument("-o", "--output", metavar="DIR",
+                         help="Library folder, used only with --no-beside.")
+    p_local.add_argument("--timestamps", dest="timestamps", action="store_true", default=None,
+                         help="Include timestamps in transcripts (default: saved setting).")
+    p_local.add_argument("--no-timestamps", dest="timestamps", action="store_false",
+                         help="Omit timestamps from transcripts.")
+    p_local.add_argument("--speakers", dest="speakers", action="store_true", default=None,
+                         help="Identify speakers via diarization.")
+    p_local.add_argument("--no-speakers", dest="speakers", action="store_false",
+                         help="Do not attempt speaker identification.")
+    p_local.add_argument("--hf-token", metavar="TOKEN",
+                         help="Hugging Face token for the gated pyannote models.")
+    _add_common(p_local)
+
     p_hw = sub.add_parser("hardware", help="Detect hardware and recommend an on-device transcription model.",
                            description="Probe CPU/RAM/GPU and print (or emit as JSON) the recommended ASR setup.")
     p_hw.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of a summary.")
@@ -178,6 +212,53 @@ def _resolve_app(args: argparse.Namespace):
                  else app.logs_dir / "podharvest.log"),
     )
     return app
+
+
+def _cmd_local(args: argparse.Namespace) -> int:
+    """Run the pipeline over local files.
+
+    Deliberately thin: everything of substance is in `podharvest.localfiles`,
+    which the GUI calls too, so the two cannot disagree about what "process
+    this file" means.
+    """
+    from pathlib import Path
+
+    from podharvest.localfiles import run_local
+
+    app = _resolve_app(args)
+    settings = config_mod.load(app)
+
+    if args.engine:
+        settings.asr_engine = args.engine
+    if args.model:
+        settings.asr_model = args.model
+    if args.timestamps is not None:
+        settings.include_timestamps = args.timestamps
+    if args.speakers is not None:
+        settings.identify_speakers = args.speakers
+    if args.beside is not None:
+        settings.local_transcripts_beside_file = args.beside
+    if args.no_recurse:
+        settings.local_recurse_folders = False
+    if args.output:
+        settings.output_dir = args.output
+    if args.hf_token:
+        settings.hf_token = args.hf_token
+    config_mod.save(app, settings)
+
+    hf_token = (args.hf_token or settings.hf_token
+                or os.environ.get("PODHARVEST_HF_TOKEN", "")
+                or os.environ.get("HF_TOKEN", "")) or None
+
+    return run_local(
+        [Path(entry) for entry in args.paths],
+        app=app,
+        settings=settings,
+        transcribe=not args.no_transcribe,
+        include_timestamps=settings.include_timestamps,
+        identify_speakers=settings.identify_speakers,
+        hf_token=hf_token,
+    )
 
 
 def _cmd_hardware(args: argparse.Namespace) -> int:
@@ -388,6 +469,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
 
 _HANDLERS = {
     "fetch": _cmd_fetch,
+    "local": _cmd_local,
     "hardware": _cmd_hardware,
     "gui": _cmd_gui,
     "info": _cmd_info,

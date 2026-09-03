@@ -2,8 +2,13 @@
 #
 # podharvest's CLI (fetch/hardware/info/settings) is deliberately built on
 # the Python standard library only, so it runs anywhere Python 3.10+ runs
-# with zero installs. The one exception is the optional desktop GUI:
+# with zero installs. Two optional additions: wxPython draws the desktop GUI,
+# and mutagen reads and writes the tag and chapter frames the Tag and Chapter
+# Editor edits. `podharvest local` uses mutagen when it is there, for titles,
+# lengths and chapter counts, and degrades to filenames without it rather
+# than refusing to run.
 wxPython>=4.2
+mutagen>=1.48.1
 
 # Everything else - ASR engines, diarization, enrichment LLMs - is heavy,
 # optional, and installed on demand into the portable app space the first

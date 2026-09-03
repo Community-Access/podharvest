@@ -36,7 +36,12 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-gui = ["wxPython>=4.2"]
+# wxPython draws the desktop window; mutagen reads and writes the tag and
+# chapter frames the Tag and Chapter Editor edits. `podharvest fetch` and
+# friends remain standard-library-only. `podharvest local` will use mutagen
+# when it is installed -- for titles, lengths and chapter counts -- and works
+# without it, listing files by filename and transcribing them as normal.
+gui = ["wxPython>=4.2", "mutagen>=1.48.1"]
 asr = [
     "huggingface_hub>=0.24",
     "faster-whisper>=1.0",

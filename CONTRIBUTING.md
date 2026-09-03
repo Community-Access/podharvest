@@ -26,9 +26,51 @@ The core pipeline - feed parsing, conversion, rendering, downloading - depends o
 ## Before you open a pull request
 
 ```bash
-python -m pytest tests/ -q      # must pass
-ruff check podharvest tests     # must be clean
+python -m pytest tests/ -q          # must pass
+ruff check podharvest tests         # must be clean
+python -m podharvest.help_audit     # every control must explain itself
 ```
+
+Three of those tests are gates rather than ordinary tests, and they fail on
+purpose when you add something:
+
+- **`help_audit`** — every focusable control must have a sentence written at its
+  construction site, so F1 can answer for it. A new control is `missing` until
+  you write one. Re-record with `python -m podharvest.help_audit --write` once
+  you have.
+- **The packaging check** — `packaging/podharvest.spec` lists every lazily
+  imported module by hand, because PyInstaller's static analysis cannot see a
+  module that is only reached from a menu handler. A new module fails the test
+  by name; add it to the spec or the built app will not contain it.
+- **The vendoring digests** — `audio_tags_core.py` and `reuse_core.py` are
+  byte-identical copies of files in QUILL. Editing one without the other fails
+  the build in both repos, which is the point. See
+  [the alignment contract](docs/ALIGNMENT-audio-tags-and-chapters.md).
+
+Do not run `ruff format` over an existing file: this repository is not
+ruff-formatted, and doing so buries a small change under hundreds of lines of
+reflowed diff.
+
+### Documentation counts as part of the change
+
+A feature is not finished when it works. Ask which of these your change touches,
+and update them in the same pull request:
+
+- **The control's own sentence.** Every focusable control explains itself, and
+  `help_audit` will refuse a new one that does not. Write it at the construction
+  site, in plain words, with the unit and the default if either matters.
+- **[The README](README.md)** if it changes everyday use.
+- **[Your first podcast](docs/GETTING_STARTED.md)** if it changes what a new
+  person does on their first run.
+- **[The technical reference](docs/REFERENCE.md)** for any new setting, command,
+  flag or output file. New settings go in the settings tables.
+- **[The accessibility statement](docs/ACCESSIBILITY.md)** if it changes what a
+  screen-reader user experiences — including if it *closes* one of the known
+  gaps, which should then stop being listed as one.
+- **[The changelog](CHANGELOG.md)**, always.
+
+Documentation here is written to be read rather than skimmed for keywords: say
+what a thing is for and why it works the way it does, not just what it is called.
 
 CI runs the tests on Linux, macOS and Windows against Python 3.10–3.13. Windows matters more than usual here: the app is heavily used there, and path handling, reserved filenames, and long-path limits have all caused real bugs.
 
@@ -69,7 +111,9 @@ An engine implements the `Engine` protocol: a `transcribe(audio_path, *, include
 
 ## Reporting bugs
 
-Include your OS, Python version, the exact command you ran, and the relevant part of `--log-file` output. For feed-parsing bugs, the feed URL is the single most useful thing you can provide.
+From the app, **Help then Report a bug** gathers all of this for you — version, platform, whether FFmpeg is present, hardware, the settings that differ from the defaults, and the tail of the log — redacts anything private, and shows you the result before you send it anywhere.
+
+By hand: include your OS, Python version, the exact command you ran, and the relevant part of `--log-file` output. For feed-parsing bugs, the feed URL is the single most useful thing you can provide.
 
 ## Code of Conduct
 

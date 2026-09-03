@@ -56,6 +56,18 @@ class Settings:
     diarization_backend: str = "pyannote"   # pyannote | sherpa-onnx | nemo-msdd
     hf_token: str = ""              # Hugging Face token for the gated pyannote models.
                                      # Falls back to $PODHARVEST_HF_TOKEN / $HF_TOKEN.
+    # -- not doing work twice ----------------------------------------------
+    # Re-running podHarvest on the same feed should pick up where it left off,
+    # not spend the afternoon regenerating what is already on disk. Turn these
+    # off to force a fresh pass (a better ASR model, changed settings, a
+    # transcript you did not like).
+    reuse_transcripts: bool = True     # skip episodes already transcribed
+    use_feed_transcripts: bool = True  # take the publisher's own transcript
+                                        # when the feed offers one, rather than
+                                        # transcribing words that already exist
+    reuse_chapters: bool = True        # keep chapter markers already in the
+                                        # file, or written in the show notes,
+                                        # instead of asking a model for new ones
     concurrent_transcriptions: int = 1   # >1 runs multiple files through one shared model at once
     transcript_timestamp_style: str = "bracket"    # bracket [00:00:00] | paren (00:00:00) | none
     transcript_speaker_style: str = "bold"          # bold **A:** | plain A: | inline (A) | none
@@ -96,6 +108,42 @@ class Settings:
     write_srt: bool = True           # subtitle track alongside each transcript
     write_vtt: bool = False          # WebVTT track alongside each transcript
 
+    # -- preview playback -------------------------------------------------
+    # The Tag and Chapter Editor's transport. Remembered because judging a
+    # boundary by ear means playing the same few seconds over and over, and
+    # having to reset the volume every time you open an episode is the kind of
+    # small tax that stops people using the feature at all.
+    preview_volume: int = 70          # 0-100
+    preview_muted: bool = False
+    # Rewind and forward are separate on purpose. Going back is usually about
+    # a sentence you missed; going forward is usually about skipping an advert
+    # break, which is longer. Plenty of people want them different, and nobody
+    # is served by one number pretending to suit both.
+    skip_back_ms: int = 10_000        # 1000-300000
+    skip_forward_ms: int = 10_000     # 1000-300000
+    # Remember the playhead per file and offer it back next time. An hour-long
+    # episode is not heard in one sitting.
+    remember_playback_position: bool = True
+    # The speeds the player offers. Yours to change: people who listen at 3x
+    # are not an edge case, and people who need 0.5x to follow a fast speaker
+    # are the reason this is a list rather than a pair of buttons. 1.0 is
+    # always kept, so there is always a way back to normal.
+    # Local files: where a transcript for a file you already had goes, and
+    # whether choosing a folder means everything under it.
+    local_transcripts_beside_file: bool = True
+    local_recurse_folders: bool = True
+    # Which source the main window is on. Remembered because somebody using
+    # podHarvest as a tag editor should not have to switch back to Local
+    # files on every launch. "feed" or "local".
+    source_mode: str = "feed"
+    playback_rates: list[float] = field(
+        default_factory=lambda: [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0])
+
+    # The media-tools state already mentioned, so a missing FFmpeg is said
+    # once rather than on every run -- and said again if it comes back and
+    # goes missing a second time.
+    media_health_last_notice: str = ""
+
     # -- app behavior --------------------------------------------------
     log_verbosity: int = 0           # default -v level when none is given on the CLI
     log_to_file: bool = True         # keep a rolling activity log on disk
@@ -109,7 +157,55 @@ class Settings:
     def from_dict(cls, data: dict[str, Any]) -> Settings:
         known = {f.name for f in fields(cls)}
         clean = {k: v for k, v in data.items() if k in known}
-        return cls(**clean)
+        settings = cls(**clean)
+        # A volume outside 0-100 would make the slider throw on the way up.
+        # A hand-edited settings file is allowed to be wrong; the app is not
+        # allowed to crash because of it.
+        try:
+            settings.preview_volume = max(0, min(100, int(settings.preview_volume)))
+        except (TypeError, ValueError):
+            settings.preview_volume = 70
+        settings.preview_muted = bool(settings.preview_muted)
+        for name, default in (("skip_back_ms", 10_000), ("skip_forward_ms", 10_000)):
+            try:
+                value = int(getattr(settings, name))
+            except (TypeError, ValueError):
+                value = default
+            setattr(settings, name, max(1_000, min(300_000, value)))
+        settings.remember_playback_position = bool(settings.remember_playback_position)
+        settings.playback_rates = clean_rates(settings.playback_rates)
+        if settings.source_mode not in {"feed", "local"}:
+            settings.source_mode = "feed"
+        return settings
+
+
+#: The slowest and fastest speeds worth offering. Below the floor speech
+#: stops being speech; above the ceiling almost no media backend will comply,
+#: and the ones that do are unintelligible.
+MIN_RATE = 0.25
+MAX_RATE = 5.0
+
+
+def clean_rates(value: object) -> list[float]:
+    """A usable list of playback speeds from whatever was in the settings file.
+
+    Hand-edited settings are allowed to be wrong; the player is not allowed to
+    break because of it. Values outside the sane range are dropped rather than
+    clamped -- a clamped 50 silently becoming 5 is a worse surprise than it
+    simply not appearing. 1.0 is always present, because a speed control with
+    no way back to normal is a trap.
+    """
+    rates: list[float] = []
+    for entry in (value if isinstance(value, (list, tuple)) else []):
+        try:
+            rate = round(float(entry), 2)
+        except (TypeError, ValueError):
+            continue
+        if MIN_RATE <= rate <= MAX_RATE and rate not in rates:
+            rates.append(rate)
+    if 1.0 not in rates:
+        rates.append(1.0)
+    return sorted(rates)
 
 
 def load(app: AppSpace) -> Settings:

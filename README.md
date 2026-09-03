@@ -8,6 +8,13 @@ on your own computer. No account, no subscription, no sending your listening hab
 
 Point it at a podcast. Go make a cup of tea. Come back to a library.
 
+**It works just as well on audio you already have.** Switch **Source** to
+**Local files**, add a file or a folder, and podHarvest will transcribe it,
+summarise it, work out chapter markers and write them into the file — and let
+you play it and edit every tag on it. No feed required. If all you want is a
+keyboard-driven, screen-reader-friendly MP3 tag and chapter editor, that is a
+perfectly good reason to install this.
+
 ## What you get
 
 Give podHarvest a podcast address and it builds you a folder like this, one entry per episode:
@@ -18,9 +25,26 @@ Give podHarvest a podcast address and it builds you a folder like this, one entr
 - **Chapter markers** with times, so you can jump to the bit you wanted
 - **Subtitle files** if you want to follow along while listening
 - **The show notes**, saved as a web page, plain text and Markdown
+- **Editable tags and chapters** — select any downloaded episode and press
+  Ctrl+T (see below)
 
 Everything is a normal file in a normal folder. Nothing is locked in an app. If you delete
 podHarvest tomorrow, your library stays exactly where it is.
+
+## Two ways in: a feed, or files you already have
+
+At the top of the window is **Source**, a pair of radio buttons:
+
+- **Podcast feed** — the original job. Paste an address, get a library.
+- **Local files** — audio already on this machine.
+
+Everything below the radio applies to whichever you pick: the same models, the
+same transcript options, the same summaries and chapter markers, the same
+player, the same editor, the same progress reporting. The only thing that
+differs is that a local file has nothing to download.
+
+Your choice is remembered, so if podHarvest is your tag editor it opens as your
+tag editor.
 
 ## Getting started
 
@@ -37,6 +61,82 @@ longer than every run after it.
 Want more detail, including how to install it? See the
 [step by step guide for your first run](docs/GETTING_STARTED.md).
 
+## Working on audio you already have
+
+Say you have a folder of recorded lectures, an audiobook that came without
+chapter marks, or a decade of podcasts downloaded before podHarvest existed.
+
+1. Set **Source** to **Local files** (or press **Ctrl+O**, which switches for
+   you).
+2. **Add files...** for a few, or **Add a folder...** for everything in one —
+   subfolders included, unless you turn that off in Settings.
+3. They appear in the **Episodes** list with what each already has: a
+   transcript, a summary, how many chapter markers, how long it runs.
+4. You can stop right there. **Ctrl+P** plays a file and **Ctrl+T** edits its
+   tags and chapters — you do not have to press Start first, and nothing is
+   written until you ask for it.
+5. Or press **Start on these files** to transcribe them, summarise them and
+   give them chapter markers.
+
+**Where the transcripts go.** Beside the audio: `lecture.mp3` gets
+`lecture.md` next to it, so the two stay together if you move the folder later.
+If you would rather podHarvest never wrote into your own folders, untick
+**Write transcripts beside the audio file** in Settings and they go into a
+`Local files` folder inside your output folder instead.
+
+**Nothing is copied, moved, renamed or converted.** **Remove** takes a file out
+of the list; it does not touch the file. The only writes to your audio are the
+tag and chapter edits you ask for, and those rewrite the tag block rather than
+the sound.
+
+**Work already done is not done again.** A file that already has a transcript
+beside it is left alone, and chapter markers already in the file are kept rather
+than replaced by inferred ones. Both are the same rules a re-run of a feed
+follows.
+
+**From the command line**, the same thing:
+
+```bash
+podharvest local "D:\Lectures"                 # a folder, subfolders included
+podharvest local one.mp3 two.m4b --model small.en
+podharvest local "D:\Audio" --no-beside       # transcripts into the library folder
+```
+
+## Fixing up an episode
+
+Select any downloaded episode and press **Ctrl+T** (or just press Enter on it) to
+open the **Tag and Chapter Editor**.
+
+Six pages, reachable with Control+Tab. Five of them hold every tag the file can
+carry — title, artist, album, track and disc numbers, composer, publisher,
+copyright, language, sort-order fields, embedded cover art, and the rest —
+twenty-six fields in all, each with a sentence saying what it is for.
+
+The sixth page is the chapters. Add one at the playhead or at a time you type;
+delete one (the marker only — the audio is never touched); type an exact start
+and end; or play a single chapter and stop at its end. And when a boundary lands
+mid-sentence, **nudge** it: **Alt+Left** and **Alt+Right** move it by one step,
+Shift with them moves ten, and **Hear boundary** plays three seconds either side
+so you can tell. The step is yours to pick, from a tenth of a second to ten
+seconds.
+
+That page has a player: **Play**, **Stop**, **Rewind** and **Forward** ten
+seconds, a **volume** you set once and a **mute** that remembers it, and a
+**speed** control offering the same speeds as the main window, set in Settings.
+Slowing down is the useful direction here — at 0.75x it is far easier to hear
+exactly where a sentence starts, which is the whole job when placing a marker.
+
+Every nudge speaks the new time and nothing else, because a whole sentence
+repeated at key-repeat speed is unusable; the full description follows once you
+stop moving.
+
+## Shared with QUILL Audio Studio
+
+podHarvest's tag and chapter editor is the same editor QUILL Audio Studio has,
+running the same code: the same fields, the same operations, the same keys. A
+file edited in one app is a file the other reads back exactly as it was left. If
+you use both, you only have to learn this once.
+
 ## How long will it take?
 
 Transcribing is the slow part, and podHarvest tells you before you commit. Select any model
@@ -49,6 +149,54 @@ and a half minutes to transcribe. A hundred episodes is an afternoon. Start it a
 While it runs, the **Episodes** list shows every episode and how far along each one is. You
 can arrow through it at any point to hear exactly where things stand. When the whole thing
 finishes, a message tells you so, and the Cancel button turns into **Open output folder**.
+
+When nothing is running, that same list is **your library**: every episode you
+have harvested, with the podcast it came from, what you have for each (audio,
+transcript, summary), when it was published and how long it is. It is there when
+you open podHarvest, and it is rebuilt when a run finishes. Ctrl+Shift+R lists it
+again if you have moved files about.
+
+**A long run can get out of the way.** Ctrl+Shift+M tucks the window into the
+notification area and the run carries on; the tray icon brings it back. Closing
+the window still quits, because a window that vanishes when you press close is
+one people think they have quit.
+
+## Reading and playing what you harvested
+
+Open podHarvest and your library is already listed. Arrow to an episode, then:
+
+- **Ctrl+P** plays it.
+- **Ctrl+Shift+T** opens the transcript, with a Find box that tells you which
+  occurrence you are on — the useful thing to do with an hour of speech is find
+  a passage, not scroll through it.
+- **Ctrl+T** opens its tags and chapters.
+
+## Playing an episode
+
+Select an episode — or a local file — and press **Ctrl+P**. You do not have to
+open anything: the player sits under the episode list, with **Rewind** and
+**Forward**, a **volume** and **mute**, and a **speed** control.
+
+**The speeds are yours to set.** Out of the box: 0.5x, 0.75x, 1x, 1.25x, 1.5x,
+1.75x, 2x, 2.5x and 3x. Change the list in Settings — **Playback speeds**,
+written as numbers separated by commas — and anything from 0.25x to 5x is
+allowed. 3x is a normal way through a backlog; 0.5x is how a fast speaker
+becomes followable; 0.75x is the one to use when you are listening for exactly
+where a sentence starts, which is the whole job when placing a chapter marker.
+1x is always kept on the list, so there is always a way back to normal.
+
+Not every media backend will play at every speed. If yours refuses one,
+podHarvest says so — naming the speed — rather than quietly carrying on at the
+old one.
+
+Rewind and forward are set separately in Settings, because going back is usually
+about a sentence you missed and going forward is usually about clearing an advert
+break. Ten seconds each to start with, anything from one second to five minutes.
+
+podHarvest remembers where you stopped in each episode and picks it up there next
+time, saying so when it does. An episode you played to the end starts from the
+beginning again, because finishing is not a place you were coming back to. Turn
+it off in Settings if you would rather always start at the top.
 
 ## Do I need to pay for anything?
 
@@ -136,12 +284,25 @@ podHarvest saves a log of every run. Choose where it goes in **Settings**, under
 podHarvest is built to be driven entirely from the keyboard, and to work properly with a
 screen reader. Nothing needs a mouse.
 
+**The key to remember is F1.** It explains the window you are in and the control you are on,
+anywhere in the program. You do not have to remember the rest of this table — you can ask.
+
 | Key | What it does |
 |---|---|
 | Ctrl+R | Start |
 | Escape | Stop the current run |
+| Ctrl+O | Add local files |
+| Ctrl+Shift+F | Add a local folder |
 | Ctrl+E | Jump to the episode list |
+| Ctrl+P | Play or pause the selected episode |
+| Ctrl+B | Rewind |
+| Ctrl+F | Forward |
+| Ctrl+Shift+T | Read the selected episode's transcript |
+| Ctrl+Shift+R | List your library again |
+| Ctrl+T | Edit the selected episode's tags and chapters |
 | Ctrl+L | Jump to the activity log |
+| Ctrl+Shift+M | Minimise to the notification area |
+| F1 | Explain this window, and the control you are on |
 | Ctrl+comma | Settings |
 | Ctrl+Shift+O | Open the output folder |
 | Ctrl+D | Check your hardware again |
@@ -165,17 +326,81 @@ feed address. podHarvest will hunt for the feed.
 **Summaries only cover the first half.** Turn on **Summarise the whole episode** in Settings.
 It takes longer but covers everything.
 
-**Something else.** Open the activity log (Ctrl+L). It says what happened in plain words.
+**Something else.** Two things answer most of it without leaving the app: **F1** on whatever
+you were doing explains what that control is for, and **Ctrl+L** opens the activity log, which
+says what happened in plain words. If that is not enough,
+[support@community-access.org](mailto:support@community-access.org) — and **Help ▸ Report a
+bug** will put together everything worth sending.
+
+## Help, documentation and support
+
+### The help is in the app
+
+**Press F1.** Anywhere, on anything.
+
+podHarvest answers with what the window you are in is for, and then what the
+control you are actually on does — its name, a sentence written for it, and how
+to drive a control of that kind. Every focusable control in the program has that
+sentence — including every checkbox and every setting, on both sources — and the
+sentences carry the units and the defaults, because those are the things you
+cannot see by looking at the label.
+
+That help ships inside the program. It needs no internet, no browser and no
+second window, and it is the same whether you are reading the screen or hearing
+it. A control that nobody has written a sentence for still answers with its name
+and its keys, because an F1 that does nothing cannot be told from an F1 that is
+broken — and a build check refuses to compile if a new control arrives without
+one, so the coverage cannot quietly rot.
+
+Two more things the app will tell you itself:
+
+- **Ctrl+L** opens the activity log, which says in ordinary words what is
+  happening and anything that went wrong.
+- **Help ▸ Media tools** says whether FFmpeg is installed and what it is used
+  for — worth asking, because everything that needs it fails quietly.
+
+### The written documentation
+
+Five documents, each with a job. None of them is a dumping ground.
+
+| Document | What it is for | Who it is for |
+|---|---|---|
+| [Your first podcast](docs/GETTING_STARTED.md) | A walkthrough of one complete run, from installing to what ends up on disk, then how to come back to it later | Someone who has just installed it |
+| This README | Everyday use: what you get, playing and reading, the keyboard, what to do when something goes wrong | Everyone, and the first place to look |
+| [Technical reference](docs/REFERENCE.md) | Every command, flag, setting and output format; the library, the editor, the reuse rules; how to build an installer | Someone scripting it, tuning it or packaging it |
+| [Model catalogue](docs/MODELS.md) | Each transcription model, its accuracy, its speed, its size and its licence | Someone choosing a model, or checking one is safe to use commercially |
+| [Accessibility statement](docs/ACCESSIBILITY.md) | What has been verified with which screen reader, and — plainly — what has not | Someone deciding whether this will work for them |
+
+And for the project itself: [Contributing](CONTRIBUTING.md), the
+[Changelog](CHANGELOG.md), and the [Security policy](SECURITY.md), which
+explains the trust model and where the real risk is.
+
+Every one of these ships with the installed app as well, under the program's
+folder and in its Start Menu group. Documentation you cannot reach offline is
+documentation you do not have.
+
+### Support
+
+**support@community-access.org.** A real address, read by people.
+
+The most useful thing you can send is the activity log. **Help ▸ Report a bug**
+gathers it for you along with the version, the platform, whether FFmpeg is
+found, your hardware, and the settings you have changed — then **shows you the
+whole thing before anything is sent**, with API keys, home folder names and
+email addresses already removed. Copy it, save it, or have it open a message
+ready to go. podHarvest never sends anything on its own.
+
+Bugs and feature requests can also go to
+[GitHub issues](https://github.com/community-access/podharvest/issues).
+Security problems should go through
+[GitHub Security Advisories](https://github.com/community-access/podharvest/security/advisories/new)
+rather than a public issue — see the [security policy](SECURITY.md).
 
 ## For the technically minded
 
 There is a command-line version, a benchmarking tool for comparing transcription models on
-your own audio, and a great deal of configuration. None of it is required.
-
-- [Technical reference](docs/REFERENCE.md) covers every command, flag and setting
-- [Model catalogue](docs/MODELS.md) covers each model, its licence and its trade-offs
-- [Accessibility statement](docs/ACCESSIBILITY.md) covers what has been verified
-- [Contributing](CONTRIBUTING.md) covers how to help
+your own audio, and a great deal of configuration. None of it is required — see the
+[technical reference](docs/REFERENCE.md).
 
 ## Licence
 

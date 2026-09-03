@@ -17,6 +17,14 @@ This document is deliberately specific about **what has been verified, what is i
 
 That covers every part of the application, including the controls added in 1.0.0: the episode list, the model source filter, the read-only model and summary description fields, the API key test, and the run-finished dialog.
 
+**The Local files source is not covered by that pass.** The Source radio box,
+the Add/Remove buttons and the local-file listing were added after it. They are
+built the same way as everything the pass covered — a `wx.RadioBox` for the
+source, label-before-control ordering, accessible names set explicitly, an F1
+sentence on every control enforced by the build gate — and they are exercised by
+automated tests, but they have not been through a screen reader by hand. Treat
+them as implemented-but-unverified until a pass says otherwise.
+
 Two honest limits on that result. It is one tester on Windows, so it establishes that the application works rather than that it works for everyone; and VoiceOver on macOS has not been exercised, so the macOS notes below remain source review only. Further reports, particularly from macOS, are very welcome - see [Reporting an accessibility issue](#reporting-an-accessibility-issue).
 
 The rest of this document was originally derived from source review and Windows MSAA inspection. The pass corroborates it, including the known gaps: "no problems reported" means the application was usable throughout, not that the limitations listed below have gone away. The activity log still does not announce new lines, because wxWidgets has no API that would let it.
@@ -36,6 +44,21 @@ The rest of this document was originally derived from source review and Windows 
 | System theming | No colors, fonts, or custom drawing are set anywhere in the GUI. High-contrast themes, focus indicators, and text scaling are all handled natively by the platform. |
 | Non-blocking UI | Long-running work happens on a background thread, so focus and keyboard input stay responsive throughout a run. |
 | Failure never strands you | If hardware detection fails, transcription is disabled with a spoken-readable explanation and the rest of the app stays usable. It previously left the Start button permanently disabled with no message. |
+| F1 explains everything | Every window answers F1 with what that window is for, then the focused control's own name, its authored sentence, and how to drive a control of that kind. Every focusable control carries a sentence, with units and defaults where those matter -- 84 construction sites across the four window modules, all of them authored rather than defaulted. A control with nothing authored still answers with its name and its role, because a silent F1 cannot be told from a broken one. `podharvest/help_audit.py` fails the build if a new control ships without one, so the coverage cannot quietly rot. |
+| Silent failures are spoken | Every FFmpeg feature fails by producing a plausible result — the episode downloads and simply never gains chapter markers, which looks exactly like an episode that had none. A missing FFmpeg is therefore said once at startup, and **Help ▸ Media tools** answers on demand. A healthy install says nothing, because a startup that reports good news every time trains you to talk over the one that does not. |
+| Editing by ear | The Tag and Chapter Editor's chapter page is built for placing markers without seeing a waveform: Alt+Left and Alt+Right nudge a boundary by a step you choose, Hear boundary plays a few seconds either side, and the speed control goes down to 0.75x, which is the direction that helps. Each nudge speaks only the new time, because a full sentence repeated at key-repeat speed is unusable; the whole sentence follows once you stop. |
+| Pictures are described in words | Embedded cover art is read out as its format, size and description before any thumbnail is shown, because a picture tells a sighted person everything and a screen-reader user nothing. |
+| Listening does not mean editing | The player is on the main window: select an episode and press Ctrl+P. Rewind, forward, volume, mute and speed are all keyboard-reachable, rewind and forward are configured separately, and where you stopped in each episode is remembered and announced when it is used. |
+| Text boxes are sized in lines, not pixels | Every multi-line box asks its own font how tall a line is. A box specified in pixels shows five lines at 100% scaling and one at 200%, which fails exactly the people who scaled their text up. A test fails the build if a pixel height reappears. |
+| The activity log wraps | It used to need horizontal scrolling to reach the end of a sentence. Its lines are prose, not columns. |
+| A bug report shows you everything first | Help then Report a bug builds the report, redacts keys, home folder names and email addresses, and shows the whole thing in a read-only box you can arrow through. Nothing is sent; you choose to copy, save, or open a pre-filled message. |
+| A long run can get out of the way | Ctrl+Shift+M minimises to the notification area and the run carries on. Closing the window still quits, because a window that disappears on close reads as having quit. |
+| The list is your library, not just a progress bar | With nothing running it lists every episode you have harvested — podcast, title, what you have for each, when it was published, how long it is — read back from each show's own `feed.json` so the titles are the publisher's rather than guessed from filenames. Its column headings change with what it is holding, because a screen reader reads the heading with every cell and the wrong one on every row is worse than none. |
+| Two sources, announced as a choice | The Source selector is a `wx.RadioBox`, so it is read as one named group with a position ("Source, Podcast feed, 1 of 2") and arrowed between, rather than as two unrelated check boxes with a state that can be both or neither. Changing it relabels the Start button *and* its accessible name, swaps the input box, and re-headings the Episodes list — so the window never describes work it is not about to do. Ctrl+O and Ctrl+Shift+F reach Local files without touching the radio at all. |
+| A local file is a first-class row | Files you add appear in the same Episodes list, with the same keys: Ctrl+P plays, Ctrl+T edits tags and chapters, Ctrl+Shift+T reads the transcript. The "What you have" cell is prose — "transcript and 12 chapters" — rather than a row of ticks, because a screen reader reads it aloud with its column heading and one phrase says more than three columns of "yes". |
+| Destructive-sounding words are checked | The Local files box has **Remove** and **Clear list**. Neither touches a file. Both the tooltip and the log line say so explicitly, because "Remove" beside a list of your own files reads as "delete" until something says otherwise. |
+| Progress says what it is actually about | A run over local files reports "12 files finished", not "12 episodes". The word is read aloud with every progress update. |
+| Transcripts can be read in place | Ctrl+Shift+T opens the selected episode's transcript with a Find box that says which occurrence you are on — the useful operation on an hour of speech is find, not scroll, and moving the caret in a read-only box is otherwise silent. |
 
 ### Known gaps
 
@@ -54,6 +77,8 @@ Adding real spoken announcements would require a screen-reader speech bridge (`a
 Also outstanding:
 
 - The window uses a fixed default size in raw pixels with no scrolled container, so at very high display scaling some content can be clipped.
+- Playback speed depends on the platform's own media backend. The speeds offered are a setting (0.25x to 5x, defaulting to 0.5x-3x), and a backend can accept one and refuse another — so a refusal is reported per speed, naming it, rather than once ever. It is still a refusal: podHarvest cannot make a backend go faster than it will.
+- The Local files source has not been through a manual screen reader pass; see [Testing status](#testing-status).
 - Tab order inside "Transcript options" follows control creation order, which differs from the visual order for one pair of controls.
 - macOS strips `&` mnemonics entirely; the Ctrl-based shortcuts are the portable path.
 
@@ -92,11 +117,15 @@ This matters as much as the tool's own interface - the point of podHarvest is to
 
 ## Reporting an accessibility issue
 
-Please open a GitHub issue describing:
+Write to **support@community-access.org**, or open a GitHub issue — whichever suits you. **Help ▸ Report a bug** inside the app assembles the useful context for you, shows you all of it, and removes anything private before you send it.
+
+Please describe:
 
 - the assistive technology and version you were using,
 - the control or output you were interacting with,
 - what you expected to hear or see, and
 - what actually happened.
+
+If you are reporting something you heard rather than saw, quoting what the screen reader actually said is worth more than a description of it.
 
 Accessibility issues are treated as high priority. Version 1.0.0 has been tested with NVDA, JAWS and Narrator on Windows with no problems found, so the most useful reports now are from anywhere that pass did not reach: VoiceOver on macOS, Orca on Linux, braille displays, or any workflow that behaves differently from the one tested.

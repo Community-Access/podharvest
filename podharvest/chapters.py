@@ -7,8 +7,14 @@ an episode can be skimmed by topic with the player's own next-chapter control
 rather than by scrubbing a progress bar. For someone using a screen reader,
 that is the difference between a browsable episode and an hour-long blob.
 
-The audio stream is copied, never re-encoded, so this is lossless and costs
-about a hundred bytes. The rewrite goes to a temporary file that only replaces
+For an MP3 the markers go straight into the ID3 tag block: adding a hundred
+bytes does not justify copying a sixty-megabyte episode, and the frames are
+written by the model shared byte-for-byte with QUILL Audio Studio (see
+docs/ALIGNMENT-audio-tags-and-chapters.md), so a file chaptered here and a
+file chaptered there are the same file.
+
+Every other container still goes through a lossless ffmpeg re-mux -- the audio
+stream is copied, never re-encoded -- to a temporary file that only replaces
 the original once ffmpeg has succeeded, so an interrupted write cannot leave a
 truncated podcast episode behind.
 """
@@ -52,6 +58,67 @@ def build_metadata(chapters: list[tuple[int, str]], total_seconds: float,
     return "\n".join(lines) + "\n"
 
 
+#: Containers mutagen can chapter in place. Everything else in
+#: SUPPORTED_SUFFIXES still takes the ffmpeg route.
+IN_PLACE_SUFFIXES = {".mp3"}
+
+
+def _embed_in_place(audio_path: Path, chapters: list[tuple[int, str]],
+                    total_seconds: float) -> bool:
+    """Write ID3 chapter frames straight into the tag block. No re-mux.
+
+    Returns False (never raises) when mutagen is missing, which is the case on
+    a command-line-only install: a podcast that failed to gain chapter markers
+    is still a perfectly good podcast.
+    """
+    from podharvest import audio_tags_core as core
+
+    marks: list = []
+    for index, (start, name) in enumerate(chapters):
+        end = (chapters[index + 1][0] if index + 1 < len(chapters)
+               else int(total_seconds))
+        if end <= start:
+            continue
+        marks.append(core.Chapter(index=len(marks), title=name,
+                                  start_ms=int(start * 1000),
+                                  end_ms=int(end * 1000)))
+    if not marks:
+        return False
+    try:
+        core.write_mp3_chapters(audio_path, marks)
+    except Exception as exc:  # noqa: BLE001 - a chapterless podcast is still fine
+        LOG.warning("Could not add chapter markers to %s: %s", audio_path.name, exc)
+        return False
+    LOG.info("Added %d chapter marker(s) to %s in place, so a podcast player "
+             "can jump between topics.", len(marks), audio_path.name)
+    return True
+
+
+def embed_chapter_objects(audio_path: Path, chapters: list) -> bool:
+    """Write a `Chapter` list -- the editor's shape -- into *audio_path*.
+
+    Deliberately not routed through `embed_chapters`: that entry point takes
+    whole seconds, which is right for chapters a language model proposed from
+    a transcript and wrong for a boundary somebody nudged to the half second
+    by ear. Same never-raises contract.
+    """
+    audio_path = Path(audio_path)
+    if not chapters or not audio_path.exists():
+        return False
+    if audio_path.suffix.lower() not in IN_PLACE_SUFFIXES:
+        pairs = [(c.start_ms // 1000, c.title) for c in chapters]
+        return embed_chapters(audio_path, pairs, chapters[-1].end_ms / 1000.0)
+    from podharvest import audio_tags_core as core
+
+    try:
+        core.write_mp3_chapters(audio_path, list(chapters))
+    except Exception as exc:  # noqa: BLE001 - a chapterless podcast is still fine
+        LOG.warning("Could not write chapter markers to %s: %s", audio_path.name, exc)
+        return False
+    LOG.info("Wrote %d chapter marker(s) to %s.", len(chapters), audio_path.name)
+    return True
+
+
 def embed_chapters(audio_path: Path, chapters: list[tuple[int, str]],
                    total_seconds: float, *, title: str = "") -> bool:
     """Write `chapters` into `audio_path` in place. Returns True when written.
@@ -68,6 +135,8 @@ def embed_chapters(audio_path: Path, chapters: list[tuple[int, str]],
         return False
     if not audio_path.exists():
         return False
+    if audio_path.suffix.lower() in IN_PLACE_SUFFIXES:
+        return _embed_in_place(audio_path, chapters, total_seconds)
 
     from podharvest.hardware import find_ffmpeg
     ffmpeg = find_ffmpeg()

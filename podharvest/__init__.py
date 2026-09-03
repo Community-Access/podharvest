@@ -19,5 +19,8 @@ DISPLAY_NAME = "podHarvest"
 #: who is polling them and get in touch), the installer metadata, and the
 #: packaging metadata - defined once here so there is a single place to change.
 HOMEPAGE = "https://github.com/community-access/podharvest"
+#: Where to write when something is wrong. Named here rather than typed
+#: into a dialog so it is the same address everywhere it appears.
+SUPPORT_EMAIL = "support@community-access.org"
 
-__all__ = ["DISPLAY_NAME", "HOMEPAGE", "__version__"]
+__all__ = ["DISPLAY_NAME", "HOMEPAGE", "SUPPORT_EMAIL", "__version__"]
