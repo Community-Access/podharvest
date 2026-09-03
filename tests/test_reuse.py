@@ -411,6 +411,7 @@ class TestMediaHealth:
     def test_it_is_said_once_and_reachable_when_asked(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui)
@@ -525,6 +526,7 @@ class TestBugReport:
     def test_it_is_reachable_from_the_help_menu(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui)

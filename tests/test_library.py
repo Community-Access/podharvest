@@ -240,6 +240,7 @@ class TestWiring:
     def test_the_library_is_the_list_when_nothing_is_running(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame)
@@ -250,6 +251,7 @@ class TestWiring:
 
     def test_the_columns_change_with_what_the_list_holds(self):
         """A reader hears the heading with every cell; it must be true."""
+        pytest.importorskip("wx")
         from podharvest.gui import _LIBRARY_COLUMNS, _RUN_COLUMNS
 
         assert len(_LIBRARY_COLUMNS) == len(_RUN_COLUMNS)
@@ -258,6 +260,7 @@ class TestWiring:
     def test_the_transcript_reader_is_reachable(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui)

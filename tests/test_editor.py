@@ -282,6 +282,7 @@ class TestReachability:
         """A surface nobody can open is a surface nobody has."""
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui)
@@ -291,6 +292,7 @@ class TestReachability:
     def test_the_editor_has_an_accelerator(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         accelerators = inspect.getsource(gui.MainFrame._build_accelerators)
@@ -307,6 +309,7 @@ class TestPreviewVolume:
 
     @pytest.fixture
     def player(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -412,6 +415,7 @@ class TestVolumeSetting:
     def test_edit_file_writes_the_level_back(self, app, episode, tmp_path):
         """Closing the window must not lose the level you set."""
         from podharvest.config import Settings
+        pytest.importorskip("wx")
         from podharvest.editor import EditorDialog
 
         settings = Settings()
@@ -444,6 +448,7 @@ class TestTransport:
 
     @pytest.fixture
     def player(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -455,6 +460,7 @@ class TestTransport:
 
     def test_the_defaults_go_past_two_times(self, player):
         """The point of the setting: 2x is not the top of the range."""
+        pytest.importorskip("wx")
         from podharvest.player import DEFAULT_RATES
 
         assert max(DEFAULT_RATES) > 2.0
@@ -466,6 +472,7 @@ class TestTransport:
 
     def test_the_labels_read_cleanly(self):
         """Spoken aloud, so no trailing zero and no bare number."""
+        pytest.importorskip("wx")
         from podharvest.player import rate_label
 
         assert rate_label(2.0) == "2x"
@@ -518,6 +525,7 @@ class TestTransport:
         assert player._sought == 600_000
 
     def test_a_skip_in_the_middle_is_exactly_the_step(self, player):
+        pytest.importorskip("wx")
         from podharvest.player import SKIP_MS
 
         player.seek_to = lambda ms: setattr(player, "_sought", ms)
@@ -557,6 +565,7 @@ class TestSkipSettings:
         assert Settings.from_dict({"skip_back_ms": "lots"}).skip_back_ms == 10_000
 
     def test_the_player_uses_each_in_its_own_direction(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -574,6 +583,7 @@ class TestSkipSettings:
 
     def test_changing_them_updates_the_buttons_too(self, app):
         """Otherwise Settings says one thing and the button says another."""
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -659,6 +669,7 @@ class TestCoverArtNeverInterrupts:
     """
 
     def test_a_corrupt_image_produces_no_thumbnail_and_no_dialog(self, app):
+        pytest.importorskip("wx")
         from podharvest.editor import CoverPage
 
         # A PNG header with a truncated IDAT: structurally a PNG, undecodable.
@@ -683,6 +694,7 @@ class TestCoverArtNeverInterrupts:
     def test_a_real_image_does_produce_a_thumbnail(self, app):
         """The other half: the fixture must actually be decodable, or the
         test above passes for the wrong reason."""
+        pytest.importorskip("wx")
         from podharvest.editor import CoverPage
 
         frame = wx.Frame(None)
@@ -695,6 +707,7 @@ class TestCoverArtNeverInterrupts:
             frame.Destroy()
 
     def test_no_cover_hides_the_thumbnail(self, app):
+        pytest.importorskip("wx")
         from podharvest.editor import CoverPage
 
         frame = wx.Frame(None)
@@ -710,6 +723,7 @@ class TestChoosingYourOwnSpeeds:
     """The speeds on offer are a setting, not a fixed list."""
 
     def test_the_player_offers_what_it_was_given(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -724,6 +738,7 @@ class TestChoosingYourOwnSpeeds:
 
     def test_normal_speed_is_always_offered(self, app):
         """A speed control with no way back to normal is a trap."""
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -735,6 +750,7 @@ class TestChoosingYourOwnSpeeds:
             frame.Destroy()
 
     def test_changing_the_setting_keeps_the_speed_you_were_on(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -747,6 +763,7 @@ class TestChoosingYourOwnSpeeds:
             frame.Destroy()
 
     def test_losing_the_speed_you_were_on_falls_back_to_normal(self, app):
+        pytest.importorskip("wx")
         from podharvest.player import PlayerPanel
 
         frame = wx.Frame(None)
@@ -782,6 +799,7 @@ class TestChoosingYourOwnSpeeds:
 
     def test_the_settings_field_is_forgiving_about_how_you_type_it(self):
         """Commas, spaces, and a trailing x are all the obvious thing to write."""
+        pytest.importorskip("wx")
         from podharvest.gui import _parse_rates
 
         assert _parse_rates("0.5, 1x, 1.5 x, 3") == [0.5, 1.0, 1.5, 3.0]
@@ -790,6 +808,7 @@ class TestChoosingYourOwnSpeeds:
 
     def test_it_round_trips_through_the_settings_field(self):
         from podharvest.config import clean_rates
+        pytest.importorskip("wx")
         from podharvest.gui import _parse_rates, _rates_text
 
         text = _rates_text(clean_rates(_parse_rates("4x, 1x, 0.5x")))
@@ -806,6 +825,7 @@ class TestChoosingYourOwnSpeeds:
     def test_the_main_window_hands_its_speeds_to_the_transport(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame)

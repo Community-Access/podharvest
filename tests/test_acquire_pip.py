@@ -562,6 +562,7 @@ class TestTheModelSourceFilter:
                            label=f"{engine} {model}")
 
     def test_downloaded_is_offered_as_a_filter(self, frame):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         assert "downloaded" in MainFrame._SOURCES
@@ -577,6 +578,7 @@ class TestTheModelSourceFilter:
         assert frame.source_radio.IsEnabled() is False
 
     def test_cloud_stays_off_without_a_key(self, frame):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         frame._local_models = [self._model()]
@@ -587,6 +589,7 @@ class TestTheModelSourceFilter:
             MainFrame._SOURCES.index("cloud")) is False
 
     def test_cloud_lights_up_when_a_key_exists(self, frame):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         frame._local_models = [self._model()]
@@ -599,6 +602,7 @@ class TestTheModelSourceFilter:
             MainFrame._SOURCES.index("all")) is True
 
     def test_downloaded_stays_off_until_something_is(self, frame, monkeypatch):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         frame._local_models = [self._model()]
@@ -609,6 +613,7 @@ class TestTheModelSourceFilter:
             MainFrame._SOURCES.index("downloaded")) is False
 
     def test_downloaded_lights_up_once_something_is(self, frame, monkeypatch):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         model = self._model()
@@ -621,6 +626,7 @@ class TestTheModelSourceFilter:
 
     def test_it_never_sits_on_an_option_it_just_switched_off(self, frame):
         """Otherwise the model list silently empties and nothing says why."""
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         frame._local_models = [self._model()]
@@ -633,6 +639,7 @@ class TestTheModelSourceFilter:
         assert frame.source_radio.IsItemEnabled(frame.source_radio.GetSelection())
 
     def test_the_filter_actually_narrows_the_list(self, frame, monkeypatch):
+        pytest.importorskip("wx")
         from podharvest.gui import MainFrame
 
         kept = self._model(model="tiny.en")

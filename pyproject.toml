@@ -55,6 +55,11 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
+    # Small, pure Python, and installs everywhere -- so the tag and chapter
+    # tests run in CI rather than being skipped there. wxPython is deliberately
+    # not here: its Linux wheels are unreliable, so the window tests skip on CI
+    # and are covered by the manual pass and local runs instead.
+    "mutagen>=1.48.1",
 ]
 build = ["pyinstaller>=6.10"]
 

@@ -224,6 +224,10 @@ class TestEmbedChapterObjects:
     """The editor's entry point, which must not round away a nudged boundary."""
 
     def test_it_keeps_millisecond_precision(self, episode_mp3):
+        # mutagen, not audio_tags_core: the module imports mutagen lazily, so
+        # it loads perfectly well without it and only the *write* fails. The
+        # guard has to name what is actually needed.
+        pytest.importorskip("mutagen")
         core = pytest.importorskip("podharvest.audio_tags_core")
         marks = [
             core.Chapter(index=0, title="Opening", start_ms=0, end_ms=9_500),

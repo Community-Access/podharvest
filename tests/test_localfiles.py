@@ -247,6 +247,7 @@ class TestTheWindow:
 
     def test_the_source_is_a_radio_box(self):
         """Announced as a named group with a count; no way to pick neither."""
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._build_source_box)
@@ -254,6 +255,7 @@ class TestTheWindow:
         assert "Podcast &feed" in source and "&Local files" in source
 
     def test_switching_source_swaps_the_box_and_relabels_start(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._apply_source_mode)
@@ -264,24 +266,28 @@ class TestTheWindow:
             "old button")
 
     def test_starting_a_run_goes_down_the_right_road(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._on_start)
         assert '_start_local()' in source
 
     def test_the_local_run_uses_the_shared_module(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._run_local_worker)
         assert "from podharvest.localfiles import run_local" in source
 
     def test_progress_says_file_rather_than_episode(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._run_noun)
         assert '"file"' in source and '"episode"' in source
 
     def test_a_highlighted_local_file_is_what_play_and_edit_open(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         for name in ("_selected_episode_audio", "_episode_audio_to_edit"):
@@ -289,6 +295,7 @@ class TestTheWindow:
             assert "_selected_local_file()" in source, name
 
     def test_the_columns_change_with_what_the_list_holds(self):
+        pytest.importorskip("wx")
         from podharvest.gui import _LIBRARY_COLUMNS, _LOCAL_COLUMNS, _RUN_COLUMNS
 
         assert len(_LOCAL_COLUMNS) == len(_LIBRARY_COLUMNS) == len(_RUN_COLUMNS)
@@ -298,18 +305,21 @@ class TestTheWindow:
 
     def test_removing_a_file_never_deletes_it(self):
         """The label and the log line both have to make that plain."""
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._on_remove_files)
         assert "never deleted" in source or "untouched" in source
 
     def test_the_chosen_source_is_remembered(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         assert "s.source_mode = self.source_mode()" in inspect.getsource(
             gui.MainFrame._save_settings)
 
     def test_the_menu_offers_a_way_in_without_the_radio(self):
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._build_menubar)
@@ -387,6 +397,7 @@ class TestPlayingALocalFile:
         than any amount of extra reloading."""
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._on_play_selected)
@@ -395,6 +406,7 @@ class TestPlayingALocalFile:
     def test_a_file_that_has_gone_says_so_before_you_press_play(self):
         import inspect
 
+        pytest.importorskip("wx")
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame._on_episode_selected)
