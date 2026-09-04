@@ -920,3 +920,70 @@ class TestFfmpegSurvivesAWingetUpgrade:
 
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         assert hardware._winget_ffmpeg() == ""
+
+
+class TestSherpaInt8Filenames:
+    """The v3 Parakeet export is int8-quantised and names its files so.
+
+    The loader and the verifier both have to accept either spelling, or the
+    Download button fetches files the readiness line then calls missing --
+    the exact wiring bug the September review fixed everywhere else.
+    """
+
+    def _choice(self):
+        from podharvest.hardware import PARAKEET_ONNX_CHOICES
+
+        by_name = {c.model: c for c in PARAKEET_ONNX_CHOICES}
+        return by_name["parakeet-tdt-0.6b-v3"]
+
+    def test_the_catalogue_carries_v3(self):
+        choice = self._choice()
+        assert "int8" in choice.source
+        assert not choice.requires_cuda, "the whole point is plain CPU"
+
+    def test_verify_accepts_int8_names(self, tmp_path):
+        from podharvest import acquire
+
+        for name in ("encoder.int8.onnx", "decoder.int8.onnx",
+                     "joiner.int8.onnx", "tokens.txt"):
+            (tmp_path / name).write_bytes(b"x" * 4096)
+        ok, reason = acquire.verify_model(tmp_path, self._choice())
+        assert ok, reason
+
+    def test_verify_still_accepts_plain_names(self, tmp_path):
+        from podharvest import acquire
+        from podharvest.hardware import PARAKEET_ONNX_CHOICES
+
+        v2 = {c.model: c for c in PARAKEET_ONNX_CHOICES}["parakeet-tdt-0.6b-v2"]
+        for name in ("encoder.onnx", "decoder.onnx", "joiner.onnx",
+                     "tokens.txt"):
+            (tmp_path / name).write_bytes(b"x" * 4096)
+        ok, reason = acquire.verify_model(tmp_path, v2)
+        assert ok, reason
+
+    def test_a_missing_component_is_still_missing(self, tmp_path):
+        from podharvest import acquire
+
+        for name in ("encoder.int8.onnx", "tokens.txt"):
+            (tmp_path / name).write_bytes(b"x" * 4096)
+        ok, reason = acquire.verify_model(tmp_path, self._choice())
+        assert not ok
+        assert "decoder" in reason
+
+    def test_the_engine_resolves_either_spelling(self, tmp_path):
+        from podharvest.transcribe import SherpaOnnxParakeetEngine
+
+        (tmp_path / "encoder.onnx").write_bytes(b"x")
+        assert SherpaOnnxParakeetEngine._component(
+            tmp_path, "encoder").name == "encoder.onnx"
+        assert SherpaOnnxParakeetEngine._component(
+            tmp_path, "decoder").name == "decoder.int8.onnx"
+
+    def test_the_download_skips_the_test_wavs(self):
+        """The repo carries smoke-test audio; users' disks do not need it."""
+        import inspect
+
+        from podharvest import acquire
+
+        source = inspect.getsource(acquire.acquire_asr_model)
+        assert '"*.onnx"' in source

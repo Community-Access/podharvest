@@ -518,6 +518,16 @@ PARAKEET_ONNX_CHOICES: list[ModelChoice] = [
                       "to run Parakeet on CPU (or GPU via onnxruntime-gpu). Slower than native CUDA "
                       "NeMo but far lighter to install and works without an NVIDIA GPU.",
                 speed_x=17.2, speed_measured=True),
+    ModelChoice("parakeet-onnx", "parakeet-tdt-0.6b-v3", 2.5,
+                "Parakeet TDT 0.6B v3 (ONNX) - 25 languages on plain CPU, no PyTorch/NeMo",
+                source="csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+                license="CC-BY-4.0", size_gb=0.7,
+                notes="The multilingual Parakeet without the NVIDIA GPU: the v3 checkpoint "
+                      "quantised to int8 and exported for sherpa-onnx, covering 25 European "
+                      "languages with automatic detection. Smaller on disk than v2's export "
+                      "because of the quantisation. For English-only work v2 remains the "
+                      "better pick.",
+                speed_x=7.9, speed_measured=True),
 ]
 CANARY_CHOICES: list[ModelChoice] = [
     ModelChoice("nemo-canary", "canary-1b-flash", 6.0,

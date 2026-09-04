@@ -1,10 +1,17 @@
 {
+  "chapter_jump.py::__init__::wx.Button": "helped",
+  "chapter_jump.py::__init__::wx.Button#2": "helped",
+  "chapter_jump.py::__init__::wx.ListBox": "helped",
   "discover.py::__init__::wx.Button": "helped",
   "discover.py::__init__::wx.Button#10": "helped",
   "discover.py::__init__::wx.Button#11": "helped",
   "discover.py::__init__::wx.Button#12": "helped",
   "discover.py::__init__::wx.Button#13": "helped",
   "discover.py::__init__::wx.Button#14": "helped",
+  "discover.py::__init__::wx.Button#15": "helped",
+  "discover.py::__init__::wx.Button#16": "helped",
+  "discover.py::__init__::wx.Button#17": "helped",
+  "discover.py::__init__::wx.Button#18": "helped",
   "discover.py::__init__::wx.Button#2": "helped",
   "discover.py::__init__::wx.Button#3": "helped",
   "discover.py::__init__::wx.Button#4": "helped",
@@ -17,6 +24,7 @@
   "discover.py::__init__::wx.CheckListBox": "helped",
   "discover.py::__init__::wx.Choice": "helped",
   "discover.py::__init__::wx.Choice#2": "helped",
+  "discover.py::__init__::wx.ListBox": "helped",
   "discover.py::__init__::wx.ListCtrl": "helped",
   "discover.py::__init__::wx.ListCtrl#2": "helped",
   "discover.py::__init__::wx.SpinCtrl": "helped",
@@ -126,5 +134,10 @@
   "reader.py::__init__::wx.Button#4": "helped",
   "reader.py::__init__::wx.TextCtrl": "helped",
   "reader.py::__init__::wx.TextCtrl#2": "helped",
-  "status_bar.py::build::wx.Button": "helped"
+  "status_bar.py::build::wx.Button": "helped",
+  "transcript_search.py::__init__::wx.Button": "helped",
+  "transcript_search.py::__init__::wx.Button#2": "helped",
+  "transcript_search.py::__init__::wx.Button#3": "helped",
+  "transcript_search.py::__init__::wx.ListBox": "helped",
+  "transcript_search.py::__init__::wx.TextCtrl": "helped"
 }

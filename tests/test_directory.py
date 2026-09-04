@@ -573,12 +573,22 @@ class TestTheMenuBar:
             assert callable(getattr(frame, name, None)), name
 
     def test_finding_and_favourites_are_in_the_menu_too(self, frame):
-        """Not everyone finds a button; the menu is the discoverable path."""
+        """Not everyone finds a button; the menu is the discoverable path.
+
+        Submenus are followed: an action one level down is still one the
+        menu bar can take you to.
+        """
+        def walk(menu):
+            for item in menu.GetMenuItems():
+                if item.IsSeparator():
+                    continue
+                yield item.GetItemLabelText()
+                if item.GetSubMenu() is not None:
+                    yield from walk(item.GetSubMenu())
+
         bar = frame.GetMenuBar()
-        labels = [item.GetItemLabelText()
-                  for index in range(bar.GetMenuCount())
-                  for item in bar.GetMenu(index).GetMenuItems()
-                  if not item.IsSeparator()]
+        labels = [label for index in range(bar.GetMenuCount())
+                  for label in walk(bar.GetMenu(index))]
         joined = " | ".join(labels)
         for wanted in ("Find a podcast", "Favourite podcasts",
                        "Show episodes in this feed", "Download the selected",

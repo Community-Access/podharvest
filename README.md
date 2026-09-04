@@ -56,7 +56,17 @@ Found something worth keeping? **Add to favourites**. **Ctrl+Shift+K** brings
 the list back up, and Enter on one puts its feed address in the box.
 
 **These are bookmarks, not subscriptions.** podHarvest never checks them for
-new episodes, never downloads anything on its own, and never notifies you.
+new episodes on its own, never downloads anything on its own, and never
+notifies you. When *you* want to know what is new, ask: **Check favourites
+for new episodes** (Ctrl+Shift+N) fetches each favourite's feed once, right
+then, and reports one line per show -- how many episodes appeared since you
+last marked the list as seen, or that nothing did. Enter on a show takes its
+feed to the main window. Nothing runs on a timer; the check happens when you
+choose it and not otherwise.
+
+Your list is also yours to take elsewhere: **Export favourites to OPML**
+writes it as a file any podcast app can import.
+
 Removing a favourite removes the bookmark only — anything you have already
 harvested from that show stays exactly where it is. The list is a plain JSON
 file in your app space, so it travels with a portable install and can be read
@@ -222,6 +232,13 @@ Open podHarvest and your library is already listed. Arrow to an episode, then:
   a passage, not scroll through it.
 - **Ctrl+T** opens its tags and chapters.
 
+When you remember the words but not the episode, search everything at once:
+**Ctrl+Shift+S** looks for a word or phrase in every transcript in the
+library and lists one row per episode that contains it — the show, how many
+times, and the first place it appears. Enter on a row opens that transcript
+with the search already run, so the next Enter is already walking the
+matches.
+
 ## Playing an episode
 
 Select an episode — or a local file — and press **Ctrl+P**. You do not have to
@@ -239,6 +256,12 @@ where a sentence starts, which is the whole job when placing a chapter marker.
 Not every media backend will play at every speed. If yours refuses one,
 podHarvest says so — naming the speed — rather than quietly carrying on at the
 old one.
+
+**Chapters are how you get around a long episode.** If the playing episode
+has chapter markers — the publisher's, or ones a run wrote, or ones you added
+in the editor — **Ctrl+J** lists them: number, title, start time. The row you
+land on is the chapter playing now; arrow to another, press Enter, and
+playback continues from there. Two hours of audio stops being a wall.
 
 Rewind and forward are set separately in Settings, because going back is usually
 about a sentence you missed and going forward is usually about clearing an advert
@@ -379,6 +402,7 @@ anywhere in the program. You do not have to remember the rest of this table — 
 | F6 | Go to the status bar (F6 or Escape comes back) |
 | Ctrl+K | Find a podcast |
 | Ctrl+Shift+K | Favourite podcasts |
+| Ctrl+Shift+N | Check favourites for new episodes |
 | Ctrl+Shift+I | Import a list of podcasts (OPML) |
 | Ctrl+Shift+E | Show the episodes in this feed |
 | Ctrl+O | Add local files |
@@ -387,7 +411,9 @@ anywhere in the program. You do not have to remember the rest of this table — 
 | Ctrl+P | Play or pause the selected episode |
 | Ctrl+B | Rewind |
 | Ctrl+F | Forward |
+| Ctrl+J | Jump to a chapter in the playing episode |
 | Ctrl+Shift+T | Read the selected episode's transcript |
+| Ctrl+Shift+S | Search all transcripts |
 | Ctrl+Shift+R | List your library again |
 | Ctrl+T | Edit the selected episode's tags and chapters |
 | Ctrl+L | Jump to the activity log |
@@ -496,6 +522,11 @@ Two more things the app will tell you itself:
   happening and anything that went wrong.
 - **Help ▸ Media tools** says whether FFmpeg is installed and what it is used
   for — worth asking, because everything that needs it fails quietly.
+- **Help ▸ Check for updates** asks GitHub what the newest release is and
+  tells you how yours compares. Only when you choose it: nothing checks
+  automatically, nothing runs at startup, and the request carries nothing
+  about you or your library — it is the same anonymous request a browser
+  makes opening the releases page.
 
 ### The written documentation
 

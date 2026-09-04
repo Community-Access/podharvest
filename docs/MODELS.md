@@ -54,9 +54,16 @@ License: CC-BY-4.0. v2 and 1.1b are English only; v3 is the multilingual success
 
 The *same* NVIDIA Parakeet TDT 0.6B checkpoint, exported to ONNX and run through [k2-fsa's sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) + plain `onnxruntime`. No PyTorch, no NeMo, no CUDA required - this is the answer if you want Parakeet's accuracy without the heavy dependency chain or a GPU.
 
-| Model | Approx. size | Hardware |
-|---|---|---|
-| `parakeet-tdt-0.6b-v2` (ONNX) | 2.4 GB | Any CPU (or GPU via `onnxruntime-gpu`) |
+| Model | Approx. size | Hardware | Languages |
+|---|---|---|---|
+| `parakeet-tdt-0.6b-v2` (ONNX) | 2.4 GB | Any CPU (or GPU via `onnxruntime-gpu`) | English |
+| `parakeet-tdt-0.6b-v3` (ONNX, int8) | 0.7 GB | Any CPU (or GPU via `onnxruntime-gpu`) | 25 European languages, auto-detected |
+
+The v3 row is the multilingual Parakeet **without** the NVIDIA GPU the native
+v3 needs: the same checkpoint quantised to int8 and exported for sherpa-onnx.
+Smaller on disk than v2's export because of the quantisation, and measured at
+7.9x real-time on this project's benchmark machine. For English-only work v2
+remains the better pick.
 
 License: CC-BY-4.0 (same weights as native Parakeet). Long audio is automatically split into ~25-second windows, since sherpa-onnx's offline recognizer is designed for single utterances rather than hour-long files.
 

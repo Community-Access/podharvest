@@ -127,6 +127,32 @@ PURPOSES: dict[str, str] = {
         "this one now takes the highlighted show straight to the main window "
         "instead."
     ),
+    "Chapters - ": (
+        "Lists the loaded episode's chapter markers with their start times, "
+        "so a two-hour episode can be navigated by ear instead of held-down "
+        "Forward. The row highlighted when this opens is the chapter playing "
+        "now. Arrow to another and press Enter or Go to chapter, and playback "
+        "continues from there; Close leaves playback where it was. Episodes "
+        "without markers say so -- the Tag and Chapter Editor can add them."
+    ),
+    "New episodes in your favourites": (
+        "Asks each favourite's feed what it has published since you last "
+        "marked the list as seen, and reports one line per show: how many "
+        "episodes are new, or that nothing is, or that the show could not "
+        "be checked. The check runs only when you open this window or press "
+        "Check again -- nothing polls in the background, and nothing is "
+        "downloaded. Enter on a show takes its feed to the main window; "
+        "Mark all as seen makes now the starting point for the next check."
+    ),
+    "Search all transcripts": (
+        "Finds a word or phrase in every transcript in the library, and "
+        "lists one row per episode that contains it: the show, the episode, "
+        "how many times it appears, and the first place it does. "
+        "Capitalisation does not matter. Enter on a row opens that "
+        "transcript in the reader with the search already run, so the next "
+        "Enter is already walking the matches. Nothing is downloaded or "
+        "changed; this reads what is on disk."
+    ),
     "Favourite podcasts": (
         "The shows you have marked, so you can come back to one without "
         "searching for it again. Arrow through the list; Enter takes the "

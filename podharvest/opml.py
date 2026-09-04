@@ -246,3 +246,53 @@ def without_duplicates(shows: list[ImportedShow]) -> list[ImportedShow]:
         seen.add(key)
         kept.append(show)
     return kept
+
+
+# -- writing a list back out ------------------------------------------------
+
+def to_opml(favorites, *, title: str = "podHarvest favourites") -> str:
+    """The favourites as an OPML 2.0 document, ready for any podcast app.
+
+    Export is the other half of import: the list you built here should not be
+    trapped here. The output is the plain dialect every app reads -- one
+    ``outline type="rss"`` per show, no folders -- because favourites have no
+    folders and inventing some would only give importers something to trip on.
+
+    Titles and addresses are escaped by the XML writer, so a show called
+    "Q&A" survives the round trip.
+    """
+    root = ElementTree.Element("opml", version="2.0")
+    head = ElementTree.SubElement(root, "head")
+    ElementTree.SubElement(head, "title").text = title
+    body = ElementTree.SubElement(root, "body")
+    for favorite in favorites:
+        feed_url = str(getattr(favorite, "feed_url", "") or "").strip()
+        if not feed_url:
+            continue
+        attributes = {
+            "type": "rss",
+            "text": str(getattr(favorite, "title", "") or "").strip() or feed_url,
+            "xmlUrl": feed_url,
+        }
+        homepage = str(getattr(favorite, "homepage", "") or "").strip()
+        if homepage:
+            attributes["htmlUrl"] = homepage
+        ElementTree.SubElement(body, "outline", attributes)
+    document = ElementTree.tostring(root, encoding="unicode")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + document + "\n"
+
+
+def export_file(path: Path, favorites, *, title: str = "podHarvest favourites") -> int:
+    """Write the favourites to *path* as OPML. Returns how many were written.
+
+    Written through a temporary file and moved into place, the same way the
+    favourites file itself is saved, so an interrupted export cannot leave a
+    half-written list where a good one used to be.
+    """
+    kept = [f for f in favorites if str(getattr(f, "feed_url", "") or "").strip()]
+    text = to_opml(kept, title=title)
+    destination = Path(path)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(destination)
+    return len(kept)

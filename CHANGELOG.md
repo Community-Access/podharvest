@@ -11,6 +11,28 @@ First public release.
 
 ### Added
 
+- **Jump to chapter during playback** (Ctrl+J): the loaded episode's chapter
+  markers as a list -- number, title, start time -- opening on the chapter
+  playing now. Enter continues playback from the chosen one. Two hours of
+  audio stops being a wall.
+- **Search all transcripts** (Ctrl+Shift+S): find a word or phrase in every
+  transcript in the library, one row per episode that contains it, and Enter
+  opens the reader with the search already run.
+- **Check favourites for new episodes** (Ctrl+Shift+N): fetches each
+  favourite's feed once, when you ask, and reports what appeared since you
+  last marked the list as seen. Still not a subscription: no timers, no
+  downloads, nothing automatic.
+- **Export favourites to OPML**: the other half of import -- your list as a
+  file any podcast app can read. The favourites family now lives together
+  under File > Favourites.
+- **Parakeet TDT 0.6B v3 via sherpa-onnx** (int8): the multilingual Parakeet
+  on plain CPU -- 25 European languages, no PyTorch, no NVIDIA GPU, 0.7 GB
+  on disk, measured at 7.9x real-time here. Downloaded, loaded and used to
+  transcribe real audio as verification.
+- **Help > Check for updates**: asks GitHub's public releases API for the
+  newest version and says how yours compares. Only when chosen -- nothing
+  checks automatically and the request carries nothing about you.
+
 - **Four new transcription models**, each earning its place on an axis a
   listener would notice. On-device: Distil-Whisper large v3.5 (the newer,
   more accurate distillation, English) and Parakeet TDT 0.6B v3 (25 European

@@ -36,7 +36,7 @@ _SNAPSHOT = _ROOT.parent / "tests" / "help_inventory.json"
 #: The modules that build windows. Everything else in the package is wx-free.
 SCAN_FILES: tuple[str, ...] = (
     "gui.py", "editor.py", "player.py", "reader.py", "discover.py",
-    "status_bar.py",
+    "status_bar.py", "chapter_jump.py", "transcript_search.py",
 )
 
 #: wx classes a person can focus and therefore press F1 on. `StaticText` is

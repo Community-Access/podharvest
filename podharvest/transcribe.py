@@ -275,6 +275,19 @@ class SherpaOnnxParakeetEngine:
     def _model_dir(self) -> Path:
         return self.app.parakeet_models_dir / "onnx" / self.choice.model
 
+    @staticmethod
+    def _component(model_dir: Path, stem: str) -> Path:
+        """The encoder/decoder/joiner file, whichever precision shipped.
+
+        The v2 export names its files plainly (`encoder.onnx`); the v3 export
+        is int8-quantised and says so in the name (`encoder.int8.onnx`).
+        Same graph either way -- sherpa-onnx does not care what the file is
+        called -- so the loader takes the one that exists rather than
+        insisting on a spelling.
+        """
+        plain = model_dir / f"{stem}.onnx"
+        return plain if plain.exists() else model_dir / f"{stem}.int8.onnx"
+
     def _load(self):
         if self._recognizer is not None:
             return self._recognizer
@@ -287,8 +300,10 @@ class SherpaOnnxParakeetEngine:
             ) from exc
 
         model_dir = self._model_dir()
-        required = ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
-        if not all((model_dir / name).exists() for name in required):
+        required = [self._component(model_dir, stem)
+                    for stem in ("encoder", "decoder", "joiner")]
+        required.append(model_dir / "tokens.txt")
+        if not all(path.exists() for path in required):
             try:
                 from huggingface_hub import snapshot_download  # type: ignore
             except ImportError as exc:
@@ -299,16 +314,16 @@ class SherpaOnnxParakeetEngine:
                      self.choice.source, self.choice.size_gb)
             snapshot_download(
                 repo_id=self.choice.source, local_dir=str(model_dir), local_dir_use_symlinks=False,
-                allow_patterns=["encoder.onnx", "encoder.weights", "decoder.onnx", "joiner.onnx", "tokens.txt"],
+                allow_patterns=["*.onnx", "encoder.weights", "tokens.txt"],
             )
 
         import os
         LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
         self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=str(model_dir / "encoder.onnx"),
-            decoder=str(model_dir / "decoder.onnx"),
-            joiner=str(model_dir / "joiner.onnx"),
+            encoder=str(self._component(model_dir, "encoder")),
+            decoder=str(self._component(model_dir, "decoder")),
+            joiner=str(self._component(model_dir, "joiner")),
             tokens=str(model_dir / "tokens.txt"),
             num_threads=min(4, os.cpu_count() or 4),
             sample_rate=self.SAMPLE_RATE,

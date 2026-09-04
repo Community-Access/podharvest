@@ -1073,15 +1073,31 @@ class MainFrame(wx.Frame):
         self._menu_find = file_menu.Append(
             wx.ID_ANY, "&Find a podcast...\tCtrl+K",
             "Search Apple's podcast directory by name")
-        self._menu_favorites = file_menu.Append(
+        # Everything favourites-related lives in one submenu: five related
+        # actions as one File-menu row keeps the menu a menu, not a list of
+        # everything -- the shape the menu gate in tests/test_directory.py
+        # holds every menu to.
+        favorites_menu = wx.Menu()
+        self._menu_favorites = favorites_menu.Append(
             wx.ID_ANY, "Fa&vourite podcasts...\tCtrl+Shift+K",
             "The shows you have marked, to come back to")
-        self._menu_add_favorite = file_menu.Append(
+        self._menu_add_favorite = favorites_menu.Append(
             wx.ID_ANY, "Add this feed to favou&rites",
             "Remember the feed address currently in the box")
-        self._menu_import_opml = file_menu.Append(
-            wx.ID_ANY, "&Import a list of podcasts...	Ctrl+Shift+I",
+        self._menu_check_favorites = favorites_menu.Append(
+            wx.ID_ANY, "Check favourites for &new episodes...\tCtrl+Shift+N",
+            "Ask each favourite's feed what is new since you last looked")
+        favorites_menu.AppendSeparator()
+        self._menu_import_opml = favorites_menu.Append(
+            wx.ID_ANY, "&Import a list of podcasts...\tCtrl+Shift+I",
             "Read an OPML list and pick which shows to keep")
+        self._menu_export_opml = favorites_menu.Append(
+            wx.ID_ANY, "E&xport favourites to OPML...",
+            "Write your favourites as an OPML file any podcast app can read")
+        file_menu.AppendSubMenu(
+            favorites_menu, "Fa&vourites",
+            "Your marked shows: the list, checking for new episodes, and "
+            "moving lists in and out")
         file_menu.AppendSeparator()
         self._menu_browse = file_menu.Append(
             wx.ID_ANY, "Show &episodes in this feed\tCtrl+Shift+E",
@@ -1123,6 +1139,9 @@ class MainFrame(wx.Frame):
             wx.ID_ANY, "Go to activity &log\tCtrl+L",
             "Move focus to the activity log")
         view_menu.AppendSeparator()
+        self._menu_search_transcripts = view_menu.Append(
+            wx.ID_ANY, "Search all transcrip&ts...\tCtrl+Shift+S",
+            "Find a word or phrase in every transcript in the library")
         self._menu_refresh_library = view_menu.Append(
             wx.ID_ANY, "Re&fresh the library\tCtrl+Shift+R",
             "Read the output folder again and list what is in it")
@@ -1151,6 +1170,9 @@ class MainFrame(wx.Frame):
         self._menu_forward = episode_menu.Append(
             wx.ID_ANY, "&Forward\tCtrl+F",
             "Jump on by the amount set in Settings")
+        self._menu_chapters = episode_menu.Append(
+            wx.ID_ANY, "&Jump to chapter...\tCtrl+J",
+            "List the loaded episode's chapter markers and continue from one")
         episode_menu.AppendSeparator()
         self._menu_transcript = episode_menu.Append(
             wx.ID_ANY, "Read the &transcript...\tCtrl+Shift+T",
@@ -1193,6 +1215,9 @@ class MainFrame(wx.Frame):
         self._menu_report_bug = help_menu.Append(
             wx.ID_ANY, "&Report a bug...",
             "Build a report you can read before anything is sent")
+        self._menu_check_updates = help_menu.Append(
+            wx.ID_ANY, "Check for &updates...",
+            "Ask github.com what the newest release is - only when you choose this")
         help_menu.AppendSeparator()
         help_menu.Append(wx.ID_ABOUT, f"&About {DISPLAY_NAME}",
                          "Version and project information")
@@ -1207,6 +1232,8 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_favorites, self._menu_favorites)
         self.Bind(wx.EVT_MENU, self._on_add_favorite, self._menu_add_favorite)
         self.Bind(wx.EVT_MENU, self._on_import_opml, self._menu_import_opml)
+        self.Bind(wx.EVT_MENU, self._on_export_opml, self._menu_export_opml)
+        self.Bind(wx.EVT_MENU, self._on_check_favorites, self._menu_check_favorites)
         self.Bind(wx.EVT_MENU, self._on_browse_feed, self._menu_browse)
         self.Bind(wx.EVT_MENU, self._on_add_files, self._menu_add_files)
         self.Bind(wx.EVT_MENU, self._on_add_folder, self._menu_add_folder)
@@ -1221,6 +1248,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda _e: self._on_play_selected(), self._menu_play)
         self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_back(), self._menu_rewind)
         self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_forward(), self._menu_forward)
+        self.Bind(wx.EVT_MENU, lambda _e: self._on_jump_to_chapter(), self._menu_chapters)
         self.Bind(wx.EVT_MENU, lambda _e: self._on_read_transcript(),
                   self._menu_transcript)
         self.Bind(wx.EVT_MENU, self._on_edit_tags, self._menu_edit_tags)
@@ -1231,6 +1259,8 @@ class MainFrame(wx.Frame):
                   self._menu_focus_episodes)
         self.Bind(wx.EVT_MENU, lambda _e: self.refresh_library(),
                   self._menu_refresh_library)
+        self.Bind(wx.EVT_MENU, lambda _e: self._on_search_transcripts(),
+                  self._menu_search_transcripts)
         self.Bind(wx.EVT_MENU, self._on_status_focus, self._menu_focus_status)
         self.Bind(wx.EVT_MENU, self._toggle_status_bar, self._menu_status_bar)
         self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
@@ -1244,9 +1274,53 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_help_here, self._menu_help_here)
         self.Bind(wx.EVT_MENU, self._on_open_docs, self._menu_docs)
         self.Bind(wx.EVT_MENU, self._on_report_bug, self._menu_report_bug)
+        self.Bind(wx.EVT_MENU, self._on_check_updates, self._menu_check_updates)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
 
     # -- menu actions that had nowhere else to live -----------------------
+
+    def _on_check_updates(self, _evt=None) -> None:
+        """Ask GitHub what the newest release is, because the user just asked.
+
+        The menu click is the consent: nothing checks automatically, and the
+        request carries nothing but a version number to compare against.
+        The network happens off the UI thread; the answer comes back as a
+        message box either way, including "could not check".
+        """
+        from podharvest import updates as updates_mod
+
+        self.status_activity("Checking for updates...")
+
+        def worker() -> None:
+            try:
+                report = updates_mod.check()
+            except updates_mod.UpdateError as exc:
+                wx.CallAfter(self._show_update_result, None, str(exc))
+                return
+            wx.CallAfter(self._show_update_result, report, "")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_update_result(self, report, error: str) -> None:
+        from podharvest import updates as updates_mod
+
+        self.status_activity("Ready.")
+        if report is None:
+            wx.MessageBox(error, "Check for updates", wx.OK | wx.ICON_WARNING, self)
+            return
+        if report.standing != "newer":
+            wx.MessageBox(report.describe(), "Check for updates",
+                          wx.OK | wx.ICON_INFORMATION, self)
+            return
+        question = report.describe() + "\n\nOpen the download page in your browser?"
+        answer = wx.MessageBox(
+            question,
+            "A newer podHarvest exists", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_INFORMATION,
+            self)
+        if answer == wx.YES:
+            import webbrowser
+
+            webbrowser.open(report.url or updates_mod.RELEASES_PAGE)
 
     def _on_reveal_episode(self, _evt=None) -> None:
         """Open the folder holding the highlighted episode's audio."""
@@ -1417,6 +1491,17 @@ class MainFrame(wx.Frame):
         """The local file highlighted, or None. Only ever set in local mode."""
         row = self.episode_list.GetFirstSelected()
         return self._local_rows.get(row) if row >= 0 else None
+
+    def _on_search_transcripts(self) -> None:
+        """Search every transcript in the library for a word or phrase."""
+        from podharvest.transcript_search import TranscriptSearchDialog
+
+        output = Path(self.output_ctrl.GetValue().strip() or ".")
+        dlg = TranscriptSearchDialog(self, output)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
 
     def _on_read_transcript(self) -> None:
         """Open the selected episode's transcript in the reader."""
@@ -1815,6 +1900,55 @@ class MainFrame(wx.Frame):
             self.now_playing.SetLabel(f"Playing: {title}")
             self._resume_if_remembered(path, title)
         self.player.toggle()
+
+    def _on_jump_to_chapter(self) -> None:
+        """List the loaded episode's chapters; Enter continues from one.
+
+        Works on whatever the transport is holding; with nothing loaded it
+        loads the highlighted episode first, the same way Play does, so
+        "jump to chapter three" is one action from either starting point.
+        """
+        from podharvest import chapter_jump
+
+        path = getattr(self, "_loaded_audio_path", None)
+        title = self._loaded_audio_title
+        if path is None:
+            local = self._selected_local_file()
+            path = local.path if local is not None else self._selected_episode_audio()
+            if path is None:
+                LOG.info("Select an episode with audio first, then jump to a "
+                         "chapter.")
+                return
+            title = (local.path.name if local is not None
+                     else self._selected_episode_title() or Path(path).name)
+            if not self.player.load(path):
+                self.now_playing.SetLabel(f"Cannot play: {Path(path).name}")
+                return
+            self._loaded_audio_title = title
+            self._loaded_audio_path = path
+            self.now_playing.SetLabel(f"Playing: {title}")
+        found = chapter_jump.chapters_for(path)
+        if not found:
+            LOG.info("'%s' has no chapter markers. The Tag and Chapter Editor "
+                     "can add some.", title)
+            wx.MessageBox(
+                f"{title} has no chapter markers.\n\nEpisodes gain them when "
+                "the publisher includes them or when a run writes them; the "
+                "Tag and Chapter Editor can add and change them.",
+                "No chapters", wx.OK | wx.ICON_INFORMATION, self)
+            return
+
+        def jump(ms: int) -> None:
+            self.player.seek_to(ms)
+            self.player.play()
+
+        dlg = chapter_jump.ChapterJumpDialog(
+            self, chapters=found, position_ms=self.player.playhead_ms(),
+            episode=title, on_jump=jump)
+        try:
+            dlg.ShowModal()
+        finally:
+            dlg.Destroy()
 
     def _resume_if_remembered(self, path, title: str) -> None:
         """Pick the episode up where it was left, and say so.
@@ -2289,6 +2423,62 @@ class MainFrame(wx.Frame):
         self._browsed_title = chosen.title
         LOG.info("Chose '%s' from the imported list.", chosen.title)
         self.browse_btn.SetFocus()
+
+    def _on_check_favorites(self, _evt=None) -> None:
+        """Ask each favourite's feed what is new, because the user just asked.
+
+        The window does the work; choosing a show in it lands back here the
+        same way Find a podcast does, with the feed filled in and Show
+        episodes one press away.
+        """
+        from podharvest.discover import FreshnessDialog
+
+        dlg = FreshnessDialog(self, self.app_space, self.settings)
+        try:
+            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+                return
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        if not self.uses_a_feed():
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
+            self._apply_source_mode()
+        self.url_ctrl.SetValue(chosen.feed_url)
+        self._browsed_title = chosen.title
+        LOG.info("Chose '%s' from the favourites check.", chosen.title)
+        self.browse_btn.SetFocus()
+
+    def _on_export_opml(self, _evt=None) -> None:
+        """Write the favourites out as OPML, for any other podcast app.
+
+        Export is the other half of import: the list built here should not
+        be trapped here. A backup you can read, and a way to move on without
+        retyping anything -- which is what a tool that respects its user
+        offers.
+        """
+        from podharvest import favorites as favorites_mod
+        from podharvest import opml as opml_mod
+
+        favorites = favorites_mod.load(self.app_space)
+        if not favorites:
+            LOG.info("There are no favourites to export yet. Mark a show as "
+                     "a favourite first, or import a list.")
+            return
+        with wx.FileDialog(
+            self, "Export favourites to OPML",
+            defaultFile="podharvest-favourites.opml",
+            wildcard="Podcast lists (*.opml)|*.opml|All files|*.*",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            destination = Path(dlg.GetPath())
+        try:
+            written = opml_mod.export_file(destination, favorites)
+        except OSError as exc:
+            LOG.error("Could not write the OPML file: %s", exc)
+            return
+        LOG.info("Exported %d favourite(s) to %s.", written, destination)
 
     def _on_browse_feed(self, _evt=None) -> None:
         """Read the feed and list its episodes, downloading nothing."""

@@ -179,11 +179,19 @@ def verify_model(model_dir: Path, choice: ModelChoice, files: list[str] | None =
         return True, "ok"
 
     if choice.engine in {"parakeet-onnx", "zipformer-onnx"}:
-        required = ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
-        for name in required:
-            path = model_dir / name
-            if not path.exists() or path.stat().st_size < _MIN_PLAUSIBLE_BYTES:
-                return False, f"missing or truncated {name}"
+        # Either precision satisfies a component: the v2 export ships
+        # `encoder.onnx`, the int8-quantised v3 export `encoder.int8.onnx`,
+        # and the engine loads whichever exists (see
+        # SherpaOnnxParakeetEngine._component).
+        for stem in ("encoder", "decoder", "joiner"):
+            candidates = [model_dir / f"{stem}.onnx",
+                          model_dir / f"{stem}.int8.onnx"]
+            if not any(path.exists() and path.stat().st_size >= _MIN_PLAUSIBLE_BYTES
+                       for path in candidates):
+                return False, f"missing or truncated {stem}.onnx"
+        tokens = model_dir / "tokens.txt"
+        if not tokens.exists() or tokens.stat().st_size < _MIN_PLAUSIBLE_BYTES:
+            return False, "missing or truncated tokens.txt"
         return True, "ok"
 
     if choice.engine == "llama-cpp":
@@ -627,6 +635,28 @@ def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient 
         reporting = _reporting_tqdm(on_progress)
         kwargs = {"repo_id": MOONSHINE_ONNX_REPO, "local_dir": str(model_dir),
                   "local_dir_use_symlinks": False, "allow_patterns": [pattern]}
+        if reporting is not None:
+            kwargs["tqdm_class"] = reporting
+        try:
+            snapshot_download(**kwargs)
+        except TypeError:
+            kwargs.pop("tqdm_class", None)
+            snapshot_download(**kwargs)
+        files = model_files(model_dir)
+
+    elif choice.engine in {"parakeet-onnx", "zipformer-onnx"}:
+        # The model files only: these repos also carry test_wavs/ samples,
+        # which are for the exporter's smoke tests, not for users' disks.
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore
+        except ImportError as exc:
+            raise HarvestError(
+                "'huggingface_hub' is required to download the sherpa-onnx "
+                f"model files. ({exc})") from exc
+        reporting = _reporting_tqdm(on_progress)
+        kwargs = {"repo_id": choice.source, "local_dir": str(model_dir),
+                  "local_dir_use_symlinks": False,
+                  "allow_patterns": ["*.onnx", "encoder.weights", "tokens.txt"]}
         if reporting is not None:
             kwargs["tqdm_class"] = reporting
         try:

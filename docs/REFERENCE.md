@@ -316,7 +316,7 @@ identical by construction rather than by intention.
 
 - A **Tag and Chapter Editor** (**Ctrl+T**, or Enter on an episode row): six pages holding every tag the audio file can carry plus its chapter markers, with a player for judging boundaries by ear. See below.
 
-A File/View/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware, **Ctrl+T** edit tags and chapters. **F1** anywhere explains the window you are in and the control you are on.
+A File/View/Episode/Tools/Help menu bar lists every action and its shortcut: **Ctrl+R** start, **Esc** cancel, **Ctrl+L** activity log, **Ctrl+D** re-detect hardware, **Ctrl+T** edit tags and chapters, **Ctrl+J** jump to a chapter while playing, **Ctrl+Shift+S** search every transcript, **Ctrl+Shift+N** check the favourites for new episodes (File > Favourites holds the whole favourites family, including OPML import and export). Help > Check for updates asks GitHub for the newest release -- only when chosen, never automatically. **F1** anywhere explains the window you are in and the control you are on.
 
 Every field you change is remembered (via the same `settings.json` the CLI uses) and restored the next time you open the app.
 
@@ -445,7 +445,7 @@ Everything below runs locally and is downloaded on first use straight into the p
 |---|---|---|---|
 | **faster-whisper** | tiny.en → large-v3, incl. large-v3-turbo and distilled sizes (8 total) | Any CPU or GPU | The default, most portable choice |
 | **Parakeet** (NVIDIA NeMo) | TDT 0.6B, TDT 1.1B | NVIDIA GPU (CUDA) + PyTorch/NeMo | Fastest + most accurate English ASR available |
-| **Parakeet-ONNX** (sherpa-onnx) | TDT 0.6B | Any CPU (no PyTorch/NeMo/CUDA needed) | Same Parakeet accuracy, without the heavy ML stack |
+| **Parakeet-ONNX** (sherpa-onnx) | TDT 0.6B v2, TDT 0.6B v3 (int8, 25 languages) | Any CPU (no PyTorch/NeMo/CUDA needed) | Same Parakeet accuracy, without the heavy ML stack; v3 adds multilingual on plain CPU |
 | **Canary** (NVIDIA NeMo) | 1B Flash | NVIDIA GPU (CUDA) | Multilingual (en/es/de/fr) with built-in punctuation |
 | **Vosk** | small / standard (English) | Any CPU, no AVX2 required | Old or very low-power machines |
 | **Moonshine** | tiny / base | Any CPU | Fastest CPU-only inference for short-form audio |
@@ -697,7 +697,7 @@ Point `PODHARVEST_HOME` at somewhere with room; the whole catalogue is about
 ### Last full run
 
 All 20 models in the catalogue downloaded and verified: 8 faster-whisper, 2
-Parakeet, 1 Parakeet-ONNX, 1 NeMo Canary, 2 Vosk, 2 Moonshine and 4 llama-cpp
+Parakeet, 2 Parakeet-ONNX, 1 NeMo Canary, 2 Vosk, 2 Moonshine and 4 llama-cpp
 enrichment models. That covers all seven distinct routes through `acquire` --
 whole-repo snapshot, single named file, zip archive, the ONNX triple-file
 layout, and the three verification branches they land in.

@@ -276,3 +276,58 @@ def test_the_real_example_list_still_parses():
     shows = opml.without_duplicates(opml.load(opml.EXAMPLE_URL))
     assert len(shows) > 20
     assert all(s.feed_url.startswith("https://") for s in shows)
+
+
+class TestExport:
+    def _favorites(self):
+        from podharvest.favorites import Favorite
+
+        return [
+            Favorite(title="Q&A Show", feed_url="https://a/f",
+                     homepage="https://a"),
+            Favorite(title="Plain", feed_url="https://b/f"),
+        ]
+
+    def test_a_round_trip_survives(self):
+        """What export writes, import reads back unchanged."""
+        text = opml.to_opml(self._favorites())
+        shows = opml.parse(text)
+        assert [s.title for s in shows] == ["Q&A Show", "Plain"]
+        assert shows[0].feed_url == "https://a/f"
+        assert shows[0].homepage == "https://a"
+
+    def test_special_characters_are_escaped_not_mangled(self):
+        text = opml.to_opml(self._favorites())
+        assert "Q&amp;A" in text
+        assert opml.parse(text)[0].title == "Q&A Show"
+
+    def test_a_favourite_with_no_address_is_left_out(self):
+        from podharvest.favorites import Favorite
+
+        favorites = self._favorites() + [Favorite(title="Broken", feed_url="")]
+        assert len(opml.parse(opml.to_opml(favorites))) == 2
+
+    def test_a_titleless_favourite_still_gets_a_text_attribute(self):
+        """OPML readers show text; a blank one is an invisible row."""
+        from podharvest.favorites import Favorite
+
+        text = opml.to_opml([Favorite(title="", feed_url="https://a/f")])
+        assert opml.parse(text)[0].title == "https://a/f"
+
+    def test_export_file_writes_and_counts(self, tmp_path):
+        path = tmp_path / "list.opml"
+        written = opml.export_file(path, self._favorites())
+        assert written == 2
+        assert path.exists()
+        assert not path.with_suffix(".opml.tmp").exists(), "moved, not left"
+        assert len(opml.parse(path.read_text(encoding="utf-8"))) == 2
+
+    def test_the_document_declares_utf8(self):
+        assert opml.to_opml([]).startswith('<?xml version="1.0" encoding="UTF-8"?>')
+
+    def test_it_is_reachable_from_the_menu(self):
+        pytest.importorskip("wx")
+        from podharvest import gui
+
+        source = inspect.getsource(gui.MainFrame._build_menubar)
+        assert "xport favourites to OPML" in source

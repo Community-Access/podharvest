@@ -745,3 +745,163 @@ class OpmlImportDialog(wx.Dialog):
     def _on_close(self, event) -> None:
         self._alive = False
         event.Skip()
+
+
+class FreshnessDialog(wx.Dialog):
+    """What the favourites published since you last looked -- when asked.
+
+    Opening the window is the ask: the check starts at once, off the UI
+    thread, one favourite after another. Each show gets one spoken line --
+    new episodes, nothing new, first look, or could not check -- and Enter
+    on a show takes its feed to the main window, where the episodes are.
+
+    Nothing here runs on a timer and nothing downloads. Mark all as seen
+    records today's newest episodes as the baseline for next time, and is a
+    button rather than automatic so "I saw the report" stays a decision.
+    """
+
+    def __init__(self, parent, app_space, settings) -> None:
+        super().__init__(parent, title="New episodes in your favourites",
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        help_mod.install(self)
+        self.app_space = app_space
+        self.settings = settings
+        self.chosen = None
+        self._reports: list = []
+        self._alive = True
+
+        from podharvest import favorites as favorites_lib
+
+        self._favorites = favorites_lib.load(app_space)
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        self.status = wx.StaticText(self, label="Checking your favourites...")
+        set_accessible_name(self.status, "Check progress")
+        root.Add(self.status, 0, wx.ALL, 10)
+
+        root.Add(wx.StaticText(self, label="&Shows checked:"), 0,
+                 wx.LEFT | wx.RIGHT, 10)
+        self.list = wx.ListBox(self, choices=[])
+        self.list.SetToolTip(
+            "One line per favourite: how many episodes are new since you "
+            "last marked the list as seen, or that nothing is. Enter takes "
+            "the highlighted show's feed to the main window.")
+        set_accessible_name(self.list, "Shows checked")
+        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda _e: self.on_use())
+        root.Add(self.list, 1, wx.EXPAND | wx.ALL, 10)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.use_btn = wx.Button(self, wx.ID_OK, label="&Use this show")
+        self.use_btn.SetToolTip(
+            "Takes the highlighted show's feed back to the main window, "
+            "where Show episodes lists what is in it.")
+        self.use_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_use())
+        self.use_btn.Enable(False)
+        row.Add(self.use_btn, 0, wx.RIGHT, 6)
+
+        self.seen_btn = wx.Button(self, label="Mark all as &seen")
+        self.seen_btn.SetToolTip(
+            "Records today's newest episodes as the starting point, so the "
+            "next check counts only what is published after now. Shows that "
+            "could not be checked keep their old baseline.")
+        self.seen_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_mark_seen())
+        self.seen_btn.Enable(False)
+        row.Add(self.seen_btn, 0, wx.RIGHT, 6)
+
+        self.again_btn = wx.Button(self, label="Check &again")
+        self.again_btn.SetToolTip("Runs the whole check again, now.")
+        self.again_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_check())
+        self.again_btn.Enable(False)
+        row.Add(self.again_btn, 0, wx.RIGHT, 12)
+
+        close_btn = wx.Button(self, wx.ID_CANCEL, label="Close")
+        close_btn.SetToolTip("Closes this window.")
+        row.AddStretchSpacer()
+        row.Add(close_btn, 0)
+        root.Add(row, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetEscapeId(wx.ID_CANCEL)
+        self.SetSizer(root)
+        self.SetMinSize(wx.Size(680, 480))
+        self.Fit()
+        self.CentreOnParent()
+        self.list.SetFocus()
+        self.Bind(wx.EVT_CLOSE, self._on_close)
+
+        if self._favorites:
+            self.on_check()
+        else:
+            self.status.SetLabel(
+                "There are no favourites to check yet. Mark a show as a "
+                "favourite, or import a list, then come back.")
+
+    # -- checking ---------------------------------------------------------
+
+    def on_check(self) -> None:
+        from podharvest import freshness
+
+        self.again_btn.Enable(False)
+        self.seen_btn.Enable(False)
+        self.status.SetLabel(
+            f"Checking {len(self._favorites)} favourite(s)...")
+
+        def progress(index: int, total: int, name: str) -> None:
+            wx.CallAfter(self._say_progress, index, total, name)
+
+        def worker() -> None:
+            reports = freshness.check_all(
+                self.app_space, self._favorites, on_progress=progress)
+            wx.CallAfter(self._show_reports, reports)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _say_progress(self, index: int, total: int, name: str) -> None:
+        if self._alive:
+            self.status.SetLabel(f"Checking {index + 1} of {total}: {name}")
+
+    def _show_reports(self, reports: list) -> None:
+        if not self._alive:
+            return
+        self._reports = list(reports)
+        self.list.Set([r.describe() for r in self._reports])
+        self.again_btn.Enable(True)
+        self.seen_btn.Enable(bool(self._reports))
+        self.use_btn.Enable(bool(self._reports))
+        fresh = sum(max(0, r.new_count) for r in self._reports)
+        first = sum(1 for r in self._reports if r.is_first_look)
+        failed = sum(1 for r in self._reports if r.error)
+        parts = [f"{fresh} new episode(s) across {len(self._reports)} show(s)."]
+        if first:
+            parts.append(f"{first} checked for the first time.")
+        if failed:
+            parts.append(f"{failed} could not be checked.")
+        self.status.SetLabel(" ".join(parts))
+        if self._reports:
+            self.list.SetSelection(0)
+            self.list.SetFocus()
+
+    # -- acting -----------------------------------------------------------
+
+    def selected(self):
+        index = self.list.GetSelection()
+        return (self._reports[index].favorite
+                if 0 <= index < len(self._reports) else None)
+
+    def on_use(self) -> None:
+        favorite = self.selected()
+        if favorite is None:
+            return
+        self.chosen = favorite
+        self.EndModal(wx.ID_OK)
+
+    def on_mark_seen(self) -> None:
+        from podharvest import freshness
+
+        written = freshness.mark_seen(self.app_space, self._reports)
+        self.status.SetLabel(
+            f"Recorded {written} show(s) as seen. The next check counts "
+            "from now.")
+
+    def _on_close(self, event) -> None:
+        self._alive = False
+        event.Skip()

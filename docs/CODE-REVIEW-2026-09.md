@@ -149,6 +149,9 @@ so the family now offers the same choices everywhere.
   (`csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8`) but ships
   int8-named files the engine's loader does not yet expect. Worth doing;
   needs a small loader change and a real accuracy check first.
+  *Done since this review:* the loader learned both spellings, the
+  catalogue carries the model, and it was downloaded, loaded and used to
+  transcribe the benchmark audio at a measured 7.9x real-time.
 - **Deepgram, AssemblyAI, Speechmatics**: capable services, but each would be
   a new request shape and key flow for capabilities the catalogue now already
   covers (speed: Groq; accuracy plus speakers: ElevenLabs/Gemini; preview

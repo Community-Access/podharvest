@@ -34,7 +34,8 @@ MAX_BYTES = 8 * 1024 * 1024
 class TranscriptDialog(wx.Dialog):
     """One transcript, read-only and searchable."""
 
-    def __init__(self, parent: wx.Window, path: Path, *, title: str = "") -> None:
+    def __init__(self, parent: wx.Window, path: Path, *, title: str = "",
+                 find: str = "") -> None:
         self.path = Path(path)
         heading = title or self.path.stem
         super().__init__(
@@ -110,6 +111,11 @@ class TranscriptDialog(wx.Dialog):
         self.CentreOnParent()
         self._load()
         self.find_ctrl.SetFocus()
+        if find:
+            # Arriving from Search all transcripts: run the search that got
+            # here, so the first Enter is already walking the matches.
+            self.find_ctrl.SetValue(find)
+            self._on_find_next()
 
     # -- loading ---------------------------------------------------------
 
