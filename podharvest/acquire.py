@@ -53,6 +53,29 @@ DIARIZATION_PACKAGES: dict[str, list[tuple[str, str]]] = {
 }
 
 
+#: The one repo Useful Sensors publish their ONNX exports in. The catalogue
+#: entries name the per-variant weight repos ("UsefulSensors/moonshine-tiny"),
+#: but those hold the *PyTorch* weights, which the ONNX engine can never load.
+#: The Download button used to fetch them anyway: a hundred megabytes of
+#: perfectly verified files no code path would ever open.
+MOONSHINE_ONNX_REPO = "UsefulSensors/moonshine"
+
+
+def moonshine_variant(model: str) -> str:
+    """``moonshine-tiny`` -> ``tiny``, the subfolder name in the ONNX repo."""
+    return model.split("-", 1)[-1]
+
+
+def moonshine_onnx_dir(model_dir: Path, model: str) -> Path:
+    """Where the engine-loadable ONNX files sit inside a downloaded model.
+
+    The snapshot keeps the repo's own nesting (``onnx/merged/<variant>/float``)
+    rather than flattening it, so the layout on disk is the layout on the hub
+    and nothing has to be moved after download.
+    """
+    return model_dir / "onnx" / "merged" / moonshine_variant(model) / "float"
+
+
 def _model_dir(app: AppSpace, choice: ModelChoice) -> Path:
     """Where this model lives. The one answer, for every kind of model.
 
@@ -144,6 +167,16 @@ def verify_model(model_dir: Path, choice: ModelChoice, files: list[str] | None =
     """
     if not model_dir.exists():
         return False, "model directory does not exist"
+
+    if choice.engine == "moonshine":
+        # The two files MoonshineOnnxModel(models_dir=...) opens. Anything
+        # else in the snapshot is tokenizer/config side-cars.
+        nested = moonshine_onnx_dir(model_dir, choice.model)
+        for name in ("encoder_model.onnx", "decoder_model_merged.onnx"):
+            path = nested / name
+            if not path.exists() or path.stat().st_size < _MIN_PLAUSIBLE_BYTES:
+                return False, f"missing or truncated {name}"
+        return True, "ok"
 
     if choice.engine in {"parakeet-onnx", "zipformer-onnx"}:
         required = ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"]
@@ -581,7 +614,29 @@ def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient 
     model_dir.mkdir(parents=True, exist_ok=True)
     files: list[str] = []
 
-    if choice.engine == "vosk":
+    if choice.engine == "moonshine":
+        # Not choice.source: that names the PyTorch-weights repo, and the ONNX
+        # engine loads from the shared export repo's per-variant subfolder.
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore
+        except ImportError as exc:
+            raise HarvestError(
+                "'huggingface_hub' is required to download the Moonshine ONNX "
+                f"files. ({exc})") from exc
+        pattern = f"onnx/merged/{moonshine_variant(choice.model)}/float/*"
+        reporting = _reporting_tqdm(on_progress)
+        kwargs = {"repo_id": MOONSHINE_ONNX_REPO, "local_dir": str(model_dir),
+                  "local_dir_use_symlinks": False, "allow_patterns": [pattern]}
+        if reporting is not None:
+            kwargs["tqdm_class"] = reporting
+        try:
+            snapshot_download(**kwargs)
+        except TypeError:
+            kwargs.pop("tqdm_class", None)
+            snapshot_download(**kwargs)
+        files = model_files(model_dir)
+
+    elif choice.engine == "vosk":
         client = client or HttpClient()
         archive = model_dir.with_suffix(".zip")
         _download_via_http(client, choice.source, archive)

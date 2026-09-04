@@ -131,10 +131,18 @@ class SettingsDialog(wx.Dialog):
         help_mod.install(self)
         self.app = app
         self.settings = settings
+        # Everything scrolls except OK and Cancel. The content outgrew any
+        # laptop screen -- 1,750 pixels tall on a 955-pixel display when this
+        # was caught -- and a dialog whose OK button sits below the bottom of
+        # the screen is a dialog a keyboard user cannot leave. A scrolled
+        # panel brings the focused control into view as Tab moves, so keyboard
+        # navigation is unchanged; only the geometry is.
+        self._content = wx.ScrolledWindow(self, style=wx.TAB_TRAVERSAL | wx.VSCROLL)
+        self._content.SetScrollRate(0, 16)
         outer = wx.BoxSizer(wx.VERTICAL)
 
         # -- activity log ------------------------------------------------
-        log_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Activity log")
+        log_box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Activity log")
         holder = log_box.GetStaticBox()
         self.chk_log_file = wx.CheckBox(holder, label="&Save a log file for every run")
         self.chk_log_file.SetToolTip(
@@ -168,7 +176,7 @@ class SettingsDialog(wx.Dialog):
         outer.Add(log_box, 0, wx.EXPAND | wx.ALL, 10)
 
         # -- summaries -----------------------------------------------------
-        sum_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Episode summaries")
+        sum_box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Episode summaries")
         sholder = sum_box.GetStaticBox()
         # The trailing note is rewritten by _update_summary_note when the model
         # changes: 12 minutes is the truth for the on-device model and nonsense
@@ -242,7 +250,7 @@ class SettingsDialog(wx.Dialog):
         outer.Add(sum_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         # -- subtitle files ------------------------------------------------
-        sub_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Subtitle files")
+        sub_box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Subtitle files")
         subholder = sub_box.GetStaticBox()
         sub_box.Add(wx.StaticText(
             subholder,
@@ -278,7 +286,7 @@ class SettingsDialog(wx.Dialog):
         outer.Add(self._build_keys_box(), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
 
         # -- finishing -----------------------------------------------------
-        fin_box = wx.StaticBoxSizer(wx.VERTICAL, self, "When a run finishes")
+        fin_box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "When a run finishes")
         fholder = fin_box.GetStaticBox()
         self.chk_finished_dialog = wx.CheckBox(
             fholder, label="Show a &dialog saying the run has finished")
@@ -291,8 +299,21 @@ class SettingsDialog(wx.Dialog):
         outer.Add(fin_box, 0, wx.EXPAND | wx.ALL, 10)
 
         buttons = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
-        outer.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
-        self.SetSizerAndFit(outer)
+        self._content.SetSizer(outer)
+        frame_sizer = wx.BoxSizer(wx.VERTICAL)
+        frame_sizer.Add(self._content, 1, wx.EXPAND)
+        frame_sizer.Add(buttons, 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizer(frame_sizer)
+        # As tall as the content wants, capped to the screen it is on.
+        wanted = outer.GetMinSize()
+        index = wx.Display.GetFromWindow(self.GetParent() or self)
+        display = wx.Display(index if index != wx.NOT_FOUND else 0).GetClientArea()
+        scrollbar = wx.SystemSettings.GetMetric(wx.SYS_VSCROLL_X)
+        self.SetClientSize(wx.Size(
+            min(wanted.width + scrollbar + 8, int(display.width * 0.95)),
+            min(wanted.height + buttons.GetMinSize().height + 24,
+                int(display.height * 0.9))))
+        self._content.FitInside()
         self._on_toggle_log(None)
         self._on_toggle_summaries(None)
 
@@ -300,7 +321,7 @@ class SettingsDialog(wx.Dialog):
         """Where podcast searches look, and how much they bring back."""
         from podharvest import directory as directory_mod
 
-        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Finding podcasts")
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Finding podcasts")
         holder = box.GetStaticBox()
         grid = wx.FlexGridSizer(2, 2, 8, 8)
         grid.AddGrowableCol(1)
@@ -342,7 +363,7 @@ class SettingsDialog(wx.Dialog):
 
     def _build_local_settings(self) -> wx.StaticBoxSizer:
         """How podHarvest treats audio you already have."""
-        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Local files")
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Local files")
         holder = box.GetStaticBox()
 
         self.chk_local_beside = wx.CheckBox(
@@ -384,7 +405,7 @@ class SettingsDialog(wx.Dialog):
 
     def _build_playback_settings(self) -> wx.StaticBoxSizer:
         """How the transport behaves: skip amounts, and whether to resume."""
-        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Playback")
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Playback")
         holder = box.GetStaticBox()
         grid = wx.FlexGridSizer(3, 2, 8, 8)
         grid.AddGrowableCol(1)
@@ -454,7 +475,7 @@ class SettingsDialog(wx.Dialog):
         from podharvest import azure_mai
 
         box = wx.StaticBoxSizer(
-            wx.VERTICAL, self, "Azure MAI-Transcribe (preview)")
+            wx.VERTICAL, self._content, "Azure MAI-Transcribe (preview)")
         holder = box.GetStaticBox()
 
         box.Add(wx.StaticText(
@@ -626,7 +647,7 @@ class SettingsDialog(wx.Dialog):
         from podharvest import cloud as cloud_mod
         from podharvest import keystore
 
-        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Cloud provider API keys (optional)")
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Cloud provider API keys (optional)")
         holder = box.GetStaticBox()
         box.Add(wx.StaticText(
             holder,
@@ -640,7 +661,17 @@ class SettingsDialog(wx.Dialog):
         grid.AddGrowableCol(1, 1)
         for name in cloud_mod.ALL_PROVIDERS:
             provider = cloud_mod.PROVIDERS[name]
-            can = "transcripts and summaries" if provider.can_transcribe else "summaries only"
+            # Say what the key actually unlocks. The old two-way guess called
+            # every transcriber "transcripts and summaries", which promised
+            # summaries Groq and ElevenLabs cannot write.
+            if provider.can_transcribe and provider.can_summarise:
+                can = "transcripts and summaries"
+            elif provider.can_transcribe:
+                can = "transcripts only"
+            else:
+                can = "summaries only"
+            if provider.preview:
+                can += ", preview"
             label = wx.StaticText(holder, label=f"{provider.label} ({can}):")
             field = wx.TextCtrl(holder, style=wx.TE_PASSWORD, size=(300, -1))
             field.SetToolTip(

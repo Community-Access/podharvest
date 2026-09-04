@@ -785,3 +785,138 @@ class TestWhereEachKindOfModelLives:
         everything += list(ENRICHMENT_CHOICES)
         dirs = [acquire._model_dir(app, c) for c in everything]
         assert len(dirs) == len(set(dirs))
+
+
+class TestOneModelStoreForEveryEngine:
+    """acquire and the engines must agree about where models live.
+
+    They did not, for four of six engines, and the symptoms were expensive:
+    a model fetched with the Download button was downloaded a second time on
+    first use (faster-whisper, NeMo), a model the engine had fetched read as
+    "not downloaded" in the window forever, and for Moonshine the button
+    downloaded the *PyTorch* weights -- a hundred megabytes of perfectly
+    verified files the ONNX engine could never open. Every engine now loads
+    through `acquire_asr_model`, the way Vosk always did.
+    """
+
+    def test_every_local_engine_loads_through_acquire(self):
+        import inspect
+
+        from podharvest import transcribe
+
+        for engine_class in (transcribe.FasterWhisperEngine,
+                             transcribe.ParakeetEngine,
+                             transcribe.MoonshineEngine,
+                             transcribe.VoskEngine):
+            source = inspect.getsource(engine_class._load)
+            assert "acquire_asr_model" in source, engine_class.__name__
+
+    def test_whisper_loads_the_directory_not_the_name(self):
+        """Loading by name asked faster-whisper's own registry, which knows a
+        different cache layout and re-downloads. Loading the directory also
+        frees the catalogue to offer converted models the registry has never
+        heard of."""
+        import inspect
+
+        from podharvest.transcribe import FasterWhisperEngine
+
+        source = inspect.getsource(FasterWhisperEngine._load)
+        assert "str(acquired.model_dir)" in source
+        # The code, not the comment explaining why the old way was wrong.
+        code = "\n".join(line for line in source.splitlines()
+                         if not line.strip().startswith("#"))
+        assert "download_root" not in code
+
+    def test_nemo_restores_the_local_checkpoint_when_there_is_one(self):
+        import inspect
+
+        from podharvest.transcribe import ParakeetEngine
+
+        source = inspect.getsource(ParakeetEngine._load)
+        assert "restore_from" in source
+        assert '.glob("*.nemo")' in source
+        assert "from_pretrained" in source, "still the fallback for no .nemo"
+
+    def test_moonshine_downloads_the_onnx_repo_not_the_weights_repo(self):
+        import inspect
+
+        from podharvest import acquire
+
+        source = inspect.getsource(acquire.acquire_asr_model)
+        assert "MOONSHINE_ONNX_REPO" in source
+        assert acquire.MOONSHINE_ONNX_REPO == "UsefulSensors/moonshine"
+
+    def test_moonshine_paths_are_the_repos_own_nesting(self):
+        from pathlib import Path
+
+        from podharvest import acquire
+
+        assert acquire.moonshine_variant("moonshine-tiny") == "tiny"
+        assert acquire.moonshine_variant("moonshine-base") == "base"
+        nested = acquire.moonshine_onnx_dir(Path("m"), "moonshine-tiny")
+        assert nested == Path("m") / "onnx" / "merged" / "tiny" / "float"
+
+    def test_moonshine_verification_wants_the_files_the_engine_opens(self, tmp_path):
+        from podharvest import acquire
+        from podharvest.hardware import MOONSHINE_CHOICES
+
+        choice = next(c for c in MOONSHINE_CHOICES if c.model == "moonshine-tiny")
+        model_dir = tmp_path / "moonshine-tiny"
+        nested = acquire.moonshine_onnx_dir(model_dir, choice.model)
+        nested.mkdir(parents=True)
+        ok, reason = acquire.verify_model(model_dir, choice)
+        assert not ok and "encoder_model.onnx" in reason
+        (nested / "encoder_model.onnx").write_bytes(b"\0" * 4096)
+        (nested / "decoder_model_merged.onnx").write_bytes(b"\0" * 4096)
+        assert acquire.verify_model(model_dir, choice) == (True, "ok")
+
+
+class TestFfmpegSurvivesAWingetUpgrade:
+    """winget names its install folder after the version and writes that path
+    into PATH. On upgrade the folder is replaced but open shells keep the old
+    PATH, `shutil.which` fails, and every FFmpeg feature silently degrades.
+    This happened on the development machine mid-session -- FFmpeg 9.0 became
+    9.0.1 and podHarvest lost it without podHarvest changing at all.
+    """
+
+    def _plant(self, tmp_path, version: str):
+        exe = (tmp_path / "Microsoft" / "WinGet" / "Packages"
+               / "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+               / f"ffmpeg-{version}-full_build" / "bin" / "ffmpeg.exe")
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ")
+        return exe
+
+    def test_the_package_folder_is_found_when_path_is_stale(self, tmp_path,
+                                                            monkeypatch):
+        from podharvest import hardware
+
+        planted = self._plant(tmp_path, "9.0.1")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.delenv("PODHARVEST_FFMPEG", raising=False)
+        monkeypatch.setattr(hardware.shutil, "which", lambda _n: None)
+        assert hardware.find_ffmpeg() == str(planted)
+
+    def test_the_newest_version_wins(self, tmp_path, monkeypatch):
+        from podharvest import hardware
+
+        self._plant(tmp_path, "9.0")
+        newest = self._plant(tmp_path, "9.0.1")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(hardware.shutil, "which", lambda _n: None)
+        assert hardware._winget_ffmpeg() == str(newest)
+
+    def test_path_still_wins_when_it_works(self, monkeypatch, tmp_path):
+        """The fallback is a rescue, not a preference."""
+        from podharvest import hardware
+
+        monkeypatch.delenv("PODHARVEST_FFMPEG", raising=False)
+        monkeypatch.setattr(hardware.shutil, "which",
+                            lambda _n: r"C:\on\path\ffmpeg.exe")
+        assert hardware.find_ffmpeg() == r"C:\on\path\ffmpeg.exe"
+
+    def test_no_winget_folder_is_quietly_nothing(self, tmp_path, monkeypatch):
+        from podharvest import hardware
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        assert hardware._winget_ffmpeg() == ""

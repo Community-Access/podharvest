@@ -266,3 +266,25 @@ class TestWiring:
         source = inspect.getsource(gui)
         assert "TranscriptDialog" in source
         assert "Read the &transcript" in source
+
+
+class TestMixedDateZones:
+    def test_one_zoneless_feed_does_not_crash_the_startup_sort(self, tmp_path):
+        """One feed writing dates without a zone next to one writing them with
+        a zone used to raise TypeError in the newest-first sort -- which runs
+        at startup, so the whole window failed to open over a formatting
+        difference between two podcasts."""
+        _make_show(tmp_path, title="Aware", folder="aware", episodes=[
+            {"stem": "a", "title": "A", "published": "2026-09-01T10:00:00+00:00"}])
+        _make_show(tmp_path, title="Naive", folder="naive", episodes=[
+            {"stem": "b", "title": "B", "published": "2026-09-02T10:00:00"}])
+        episodes = library.all_episodes(tmp_path)
+        assert [e.title for e in episodes] == ["B", "A"]
+
+    def test_a_naive_date_is_read_as_utc(self):
+        from datetime import timezone
+
+        from podharvest.library import _parse_when
+
+        when = _parse_when("2026-09-01T10:00:00")
+        assert when is not None and when.tzinfo == timezone.utc

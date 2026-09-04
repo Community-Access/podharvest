@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from podharvest.util import LOG
@@ -264,14 +265,41 @@ def _apple_gpu() -> list[Gpu]:
     return []
 
 
+def _winget_ffmpeg() -> str:
+    """FFmpeg from winget's own package folder, surviving version upgrades.
+
+    winget installs Gyan.FFmpeg into a folder named after the version
+    (``ffmpeg-9.0-full_build``) and writes that versioned path into the user's
+    PATH. On upgrade the folder is replaced (``ffmpeg-9.0.1-full_build``) but
+    open shells and services keep the old PATH -- so ``shutil.which`` fails,
+    and every FFmpeg feature silently degrades in exactly the way
+    media_health.py warns about. Caught in the act on the development machine:
+    winget upgraded mid-session and podHarvest lost FFmpeg without anything
+    changing in podHarvest. Globbing the package directory finds whatever
+    version is actually there, regardless of what PATH believes.
+    """
+    base = os.environ.get("LOCALAPPDATA", "")
+    if not base:
+        return ""
+    root = Path(base) / "Microsoft" / "WinGet" / "Packages"
+    try:
+        found = sorted(root.glob("Gyan.FFmpeg*/*/bin/ffmpeg.exe"), reverse=True)
+    except OSError:
+        return ""
+    return str(found[0]) if found else ""
+
+
 def find_ffmpeg() -> str:
-    """Locate ffmpeg on PATH, in our managed tools folder, or via imageio-ffmpeg."""
+    """Locate ffmpeg on PATH, in winget's folder, or via imageio-ffmpeg."""
     env = os.environ.get("PODHARVEST_FFMPEG")
     if env and os.path.isfile(env):
         return env
     found = shutil.which("ffmpeg")
     if found:
         return found
+    winget = _winget_ffmpeg()
+    if winget:
+        return winget
     try:
         import imageio_ffmpeg  # type: ignore
         exe = imageio_ffmpeg.get_ffmpeg_exe()
@@ -440,6 +468,16 @@ WHISPER_CHOICES: list[ModelChoice] = [
                 "Whisper distil-large-v3 - near large-v3 accuracy, faster",
                 source="Systran/faster-distil-whisper-large-v3", license="MIT", size_gb=1.5,
                 speed_x=3.2, speed_measured=False),
+    ModelChoice(
+        "faster-whisper", "distil-large-v3.5", 4.0,
+        "Distil-Whisper large v3.5 - the newest distillation, English only",
+        source="distil-whisper/distil-large-v3.5-ct2", size_gb=1.5,
+        license="MIT",
+        notes="The successor to distil-large-v3, distilled from four times as "
+              "much audio: measurably more accurate at the same speed and "
+              "size. English only, like every distilled Whisper. Loads from "
+              "podHarvest's own model store, so it works even though "
+              "faster-whisper's built-in list has never heard of it."),
     ModelChoice("faster-whisper", "large-v3-turbo", 6.0,
                 "Whisper large-v3-turbo - OpenAI's 2024 pruned large model, ~8x faster than large-v3",
                 source="mobiuslabsgmbh/faster-whisper-large-v3-turbo", license="MIT", size_gb=1.6,
@@ -456,6 +494,16 @@ PARAKEET_CHOICES: list[ModelChoice] = [
                 notes="English only. Best speed/accuracy ratio of any local ASR model on CUDA. "
                       "Needs the full NeMo/PyTorch stack - see parakeet-onnx for a lighter alternative.",
                 speed_x=60.0, speed_measured=False),
+    ModelChoice(
+        "parakeet", "parakeet-tdt-0.6b-v3", 3.0,
+        "NVIDIA Parakeet TDT 0.6B v3 - 25 languages, needs an NVIDIA GPU",
+        kind="asr", requires_cuda=True, source="nvidia/parakeet-tdt-0.6b-v3",
+        size_gb=2.4, license="CC-BY-4.0",
+        notes="The multilingual successor to v2: the same size and speed, "
+              "covering 25 European languages including Spanish, French and "
+              "German, with automatic language detection. v2 remains the "
+              "better pick for English-only work; this one is for a library "
+              "that is not all in English."),
     ModelChoice("parakeet", "parakeet-tdt-1.1b", 5.0, "Parakeet TDT 1.1B - most accurate, NVIDIA GPU only (NeMo/PyTorch)",
                 requires_cuda=True, source="nvidia/parakeet-tdt-1.1b",
                 license="CC-BY-4.0", size_gb=4.4, notes="English only.",

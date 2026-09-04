@@ -127,11 +127,23 @@ class FasterWhisperEngine:
                 "faster-whisper is not installed. Run 'podharvest hardware' once "
                 "(or let a fetch/transcribe job run) to install it automatically."
             ) from exc
+        # One downloader, one location. `acquire` fetches the CTranslate2
+        # snapshot into whisper/<model>/ and the engine loads that directory.
+        # These used to be two different layouts: the Download button filled
+        # whisper/<model>/ while WhisperModel(name, download_root=...) looked
+        # for the Hugging Face cache layout (models--Systran--...) -- so a
+        # freshly downloaded model was downloaded a second time on first use,
+        # and a model the engine had fetched read as "not downloaded" in the
+        # window forever. Loading by directory also frees the catalogue from
+        # faster-whisper's built-in name registry, which is what lets it offer
+        # converted models the registry has never heard of.
+        from podharvest.acquire import acquire_asr_model
+
+        acquired = acquire_asr_model(self.app, self.choice)
         LOG.info("Loading the speech model '%s' (%s, %s)...", self.choice.model, self.device, self.compute_type)
         t0 = time.monotonic()
         self._model = WhisperModel(
-            self.choice.model, device=self.device, compute_type=self.compute_type,
-            download_root=str(self.app.whisper_models_dir),
+            str(acquired.model_dir), device=self.device, compute_type=self.compute_type,
         )
         LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model
@@ -187,9 +199,21 @@ class ParakeetEngine:
                 "install it manually with 'pip install nemo_toolkit[asr]' if you want to use "
                 f"{self.choice.engine}."
             ) from exc
-        LOG.info("Loading the speech model '%s' from %s...", self.choice.model, self.choice.source)
+        # The snapshot `acquire` fetched carries the .nemo checkpoint, and
+        # restore_from loads it directly. from_pretrained is the fallback for
+        # a repo that ships no .nemo -- but going through it first meant NeMo
+        # re-downloaded into its own cache and the Download button's gigabytes
+        # were never opened by anything.
+        from podharvest.acquire import acquire_asr_model
+
+        acquired = acquire_asr_model(self.app, self.choice)
+        checkpoint = next(iter(acquired.model_dir.glob("*.nemo")), None)
+        LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
-        self._model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.choice.source)
+        if checkpoint is not None:
+            self._model = nemo_asr.models.ASRModel.restore_from(str(checkpoint))
+        else:
+            self._model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.choice.source)
         LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model
 
@@ -524,9 +548,17 @@ class MoonshineEngine:
         if name is None:
             raise HarvestError(f"Unknown Moonshine model {self.choice.model!r}.")
 
+        # `acquire` puts the ONNX pair where the download button, the doctor
+        # and the readiness line all look; models_dir points the engine at
+        # exactly those files. model_name is still passed because the engine
+        # sizes its decoder limits from it.
+        from podharvest.acquire import acquire_asr_model, moonshine_onnx_dir
+
+        acquired = acquire_asr_model(self.app, self.choice)
+        onnx_dir = moonshine_onnx_dir(acquired.model_dir, self.choice.model)
         LOG.info("Loading the speech model '%s'...", self.choice.model)
         t0 = time.monotonic()
-        self._model = MoonshineOnnxModel(model_name=name)
+        self._model = MoonshineOnnxModel(models_dir=str(onnx_dir), model_name=name)
         self._tokenizer = load_tokenizer()
         LOG.info("Speech model ready (took %.1f seconds).", time.monotonic() - t0)
         return self._model, self._tokenizer
@@ -755,7 +787,9 @@ def _read_pcm16k_generic(audio_path: Path, sample_rate: int):
     from podharvest.hardware import find_ffmpeg
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
-        raise HarvestError("ffmpeg is required to decode audio for diarization.")
+        raise HarvestError(
+            "FFmpeg is required to decode audio for this engine and was not "
+            "found. Help > Media tools says where podHarvest looked.")
     proc = subprocess.run(
         [ffmpeg, "-v", "error", "-i", str(audio_path), "-f", "s16le", "-ac", "1",
          "-ar", str(sample_rate), "-"],

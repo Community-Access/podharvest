@@ -27,6 +27,7 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
   - [The Tag and Chapter Editor](#the-tag-and-chapter-editor)
   - [Not doing the same work twice](#not-doing-the-same-work-twice)
 - [Supported on-device models](#supported-on-device-models)
+- [The September 2026 review](#the-september-2026-review)
 - [Validating accuracy and comparing models](#validating-accuracy-and-comparing-models)
 - [Checking an install](#checking-an-install)
 - [Settings reference](#settings-reference)
@@ -425,6 +426,14 @@ one, so the enrichment step still runs.
 | `skip_forward_ms` | `10000` | How far Forward and Ctrl+F jump on. Separate from rewind: skipping an advert break usually wants a bigger jump than re-hearing a sentence. |
 | `remember_playback_position` | `true` | Remember the playhead per file and offer it back. Positions in the first ten seconds or the last thirty are not stored -- neither is a place you were coming back to. Kept in `playback-positions.json` beside the settings, bounded to 500 entries. |
 | `media_health_last_notice` | `""` | The FFmpeg state already reported, so a missing tool is mentioned once rather than at every launch — and again if it comes back and goes missing a second time. |
+
+## The September 2026 review
+
+A full review of the engines, the acquisition pipeline and the window flows
+is written up in [CODE-REVIEW-2026-09.md](CODE-REVIEW-2026-09.md): what was
+found, what was fixed, which models were added and — as importantly — which
+were considered and not added, and why. It is the record to read before
+proposing a new provider.
 
 ## Supported on-device models
 

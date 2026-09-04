@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from podharvest.util import LOG
@@ -90,13 +90,26 @@ class Show:
 
 
 def _parse_when(value: object) -> datetime | None:
+    """A stored timestamp, always timezone-aware, or None.
+
+    Always aware, because the library sorts every show's episodes together and
+    Python refuses to compare a naive datetime with an aware one. One feed
+    that writes dates without a zone next to one that writes them with a zone
+    used to crash the sort -- and the sort runs at startup, so the whole
+    window failed to open over a formatting difference between two podcasts.
+    A naive date is taken as UTC: wrong by at most half a day, which for
+    "newest first" is close enough, where a crash is not.
+    """
     if not isinstance(value, str) or not value.strip():
         return None
     text = value.strip().replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(text)
+        when = datetime.fromisoformat(text)
     except ValueError:
         return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when
 
 
 def _first_existing(folder: Path, stem: str, suffixes: tuple[str, ...]) -> Path | None:

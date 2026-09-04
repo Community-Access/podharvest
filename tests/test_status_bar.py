@@ -305,3 +305,78 @@ class TestTheWindowUsesIt:
 
     def test_the_library_cell_counts_what_is_listed(self, frame):
         assert frame.status_library().endswith("episodes")
+
+
+class TestTheSettingsDialogFitsOnAScreen:
+    """The settings outgrew any laptop: 1,750 pixels of content on a
+    955-pixel display, with OK and Cancel below the bottom edge -- a dialog a
+    keyboard user could enter and not leave. The content now scrolls and the
+    buttons stay put.
+    """
+
+    @pytest.fixture
+    def dialog(self, wx_app):
+        import wx
+
+        from podharvest import gui
+
+        frame = gui.MainFrame()
+        dlg = gui.SettingsDialog(frame, frame.app_space, frame.settings)
+        yield dlg, frame, wx
+        dlg.Destroy()
+        if getattr(frame, "_status_timer", None) is not None:
+            frame._status_timer.Stop()
+        frame._alive = False
+        if getattr(frame, "_tray", None) is not None:
+            try:
+                frame._tray.Destroy()
+            except Exception:
+                pass
+        frame.Destroy()
+
+    def test_it_is_no_taller_than_the_screen(self, dialog):
+        dlg, _frame, wx = dialog
+        display = wx.Display(0).GetClientArea()
+        assert dlg.GetSize().height <= display.height
+
+    def test_the_content_scrolls_rather_than_being_cut(self, dialog):
+        dlg, _frame, _wx = dialog
+        assert dlg._content.GetVirtualSize().height > dlg.GetClientSize().height
+
+    def test_ok_and_cancel_never_scroll_away(self, dialog):
+        """They sit on the dialog, outside the scroller, so leaving the
+        dialog never requires finding the bottom of a long page first."""
+        dlg, _frame, wx = dialog
+        # Direct children only: FindWindowById searches globally, and another
+        # window in the shared test session may also own a wx.ID_OK.
+        direct = {child.GetId(): child for child in dlg.GetChildren()
+                  if isinstance(child, wx.Button)}
+        assert wx.ID_OK in direct and wx.ID_CANCEL in direct
+
+    def test_applying_still_reaches_every_section(self, dialog):
+        """Reparenting eight boxes must not have detached any control from
+        the code that reads it."""
+        dlg, frame, _wx = dialog
+        dlg.chk_sound_cues.SetValue(True)
+        dlg.mai_region_ctrl.SetValue("eastus")
+        dlg.search_limit_ctrl.SetValue(30)
+        dlg.apply_to(frame.settings)
+        assert frame.settings.sound_cues is True
+        assert frame.settings.azure_speech_region == "eastus"
+        assert frame.settings.search_limit == 30
+
+    def test_key_captions_promise_only_what_the_key_unlocks(self, dialog):
+        """Groq and ElevenLabs transcribe and cannot summarise; the caption
+        used to promise both for any provider that could transcribe."""
+        import wx
+
+        dlg, _frame, _wx = dialog
+        labels = [w.GetLabel()
+                  for box in dlg._content.GetChildren()
+                  for w in ([box] + list(box.GetChildren()))
+                  if isinstance(w, wx.StaticText)]
+        joined = " | ".join(labels)
+        assert "Groq (transcripts only):" in joined
+        assert "ElevenLabs (transcripts only):" in joined
+        assert "OpenRouter (summaries only):" in joined
+        assert "OpenAI (transcripts and summaries):" in joined

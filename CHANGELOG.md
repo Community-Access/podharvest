@@ -9,6 +9,43 @@ First public release.
 <!-- Everything below was folded into 1.0.0 rather than shipped as a
      separate version, at the maintainer's direction. -->
 
+### Added
+
+- **Four new transcription models**, each earning its place on an axis a
+  listener would notice. On-device: Distil-Whisper large v3.5 (the newer,
+  more accurate distillation, English) and Parakeet TDT 0.6B v3 (25 European
+  languages, NVIDIA GPUs). Cloud: Groq's Whisper large-v3-turbo (full-size
+  Whisper at about four cents an hour, with a free tier and real timestamps)
+  and ElevenLabs Scribe (accuracy-first, speakers labelled in the same pass).
+  Groq and ElevenLabs are the same two cloud transcribers QUILL already
+  vetted, so the family offers the same choices everywhere.
+  docs/CODE-REVIEW-2026-09.md records what was considered and not added.
+
+### Fixed (September review)
+
+- **Every engine now loads models from the same store the Download button
+  fills.** Four of six did not: faster-whisper and NeMo re-downloaded
+  gigabytes the button had already fetched, a model the engine had fetched
+  read as "not downloaded" forever, and Moonshine's button downloaded the
+  PyTorch weights its ONNX engine could never open. Loading by directory
+  also unlocks models faster-whisper's own registry has never heard of,
+  which is what makes the v3.5 addition possible at all.
+- **Two podcasts with different date formats no longer crash startup.** One
+  feed writing dates without a timezone next to one writing them with one
+  raised a TypeError in the newest-first sort, which runs when the window
+  opens. Zoneless dates are read as UTC.
+- **A winget FFmpeg upgrade no longer silently removes FFmpeg.** winget
+  names its install folder after the version and PATH keeps the old name
+  after an upgrade, so every FFmpeg feature quietly degraded. podHarvest now
+  finds whatever version winget actually installed. Caught happening live
+  during the review.
+- **The Settings window fits on a screen.** Its content had grown to 1,750
+  pixels on a 955-pixel display, with OK and Cancel below the bottom edge --
+  enterable but not leavable by keyboard. Everything scrolls now except OK
+  and Cancel, which never move.
+- **Cloud timestamps are decided by the catalogue, not a hardcoded model
+  name**, and API-key captions promise only what each key actually unlocks.
+
 ### Fixed
 
 - **`is_downloaded()` was permanently false for every enrichment model.**

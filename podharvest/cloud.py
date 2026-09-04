@@ -34,10 +34,11 @@ from podharvest.keystore import load_key, redact
 from podharvest.util import LOG, HarvestError, spoken_duration
 
 #: Providers that can turn audio into text.
-TRANSCRIBE_PROVIDERS = ("openai", "gemini", "azure-mai")
+TRANSCRIBE_PROVIDERS = ("openai", "gemini", "azure-mai", "groq", "elevenlabs")
 #: Providers that can write summaries and chapter markers from a transcript.
 SUMMARY_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud")
-ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud", "azure-mai")
+ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud", "azure-mai",
+                 "groq", "elevenlabs")
 
 
 #: When the hardcoded prices below were last checked against each provider's
@@ -45,7 +46,7 @@ ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud", "azure-mai")
 #: not, so their figures are copied by hand and go stale silently. Every cost
 #: shown to a user carries this date, because an out-of-date number presented
 #: confidently is worse than no number at all.
-PRICES_CHECKED = "2026-09-02"
+PRICES_CHECKED = "2026-09-04"
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,20 @@ PROVIDERS: dict[str, Provider] = {
         can_transcribe=True, can_summarise=False,
         pricing_url="https://azure.microsoft.com/pricing/details/speech/",
         live_pricing=False, needs_endpoint=True, preview=True),
+    "groq": Provider(
+        "groq", "Groq",
+        "https://console.groq.com/keys",
+        "Free tier available. Runs Whisper on Groq's own chips, which makes "
+        "it the fastest cloud transcription tested anywhere near its price.",
+        can_transcribe=True, can_summarise=False,
+        pricing_url="https://groq.com/pricing", live_pricing=False),
+    "elevenlabs": Provider(
+        "elevenlabs", "ElevenLabs",
+        "https://elevenlabs.io/app/settings/api-keys",
+        "The Scribe model: measured among the most accurate anywhere, and it "
+        "labels speakers in the same pass.",
+        can_transcribe=True, can_summarise=False,
+        pricing_url="https://elevenlabs.io/pricing/api", live_pricing=False),
     "ollama-cloud": Provider(
         "ollama-cloud", "Ollama Cloud",
         "https://ollama.com/settings/keys",
@@ -146,6 +161,30 @@ CLOUD_ASR_CHOICES: list[ModelChoice] = [
         notes="Measured 2.8% word error rate, the best of the OpenAI models tested. The "
               "only one that returns timestamps, so pick this one if you want chapter "
               "markers or subtitle files from OpenAI."),
+    ModelChoice(
+        "cloud", "whisper-large-v3-turbo", 0.0,
+        "Groq Whisper large turbo - full-size Whisper at a small-model price, cloud",
+        location="cloud", provider="groq", speed_x=0.0, speed_measured=False,
+        cost_per_audio_minute=0.000667, license="commercial",
+        provides_timestamps=True,
+        notes="OpenAI's Whisper large-v3-turbo running on Groq's own chips, "
+              "which is what makes it unusually fast and unusually cheap - "
+              "about four cents per hour of audio, with a free tier to try it "
+              "on. Returns real per-segment timestamps, so chapters and "
+              "subtitle files work. No speed figure is shown because none has "
+              "been measured here yet."),
+    ModelChoice(
+        "cloud", "scribe_v1", 0.0,
+        "ElevenLabs Scribe - accuracy-first, names the speakers, cloud",
+        location="cloud", provider="elevenlabs", speed_x=0.0,
+        speed_measured=False, cost_per_audio_minute=0.0067,
+        license="commercial", speakers_built_in=True, provides_timestamps=True,
+        notes="ElevenLabs' Scribe, which benchmarks among the most accurate "
+              "transcription available anywhere, and labels who is speaking "
+              "in the same pass - no separate diarization step and no Hugging "
+              "Face token. Word-level timestamps, so chapters and subtitles "
+              "work. The trade is price: several times OpenAI's rate, worth "
+              "it for difficult audio where accuracy is the whole point."),
     ModelChoice(
         "cloud", "MAI-Transcribe-2", 0.0,
         "Azure MAI-Transcribe-2 - English and Spanish, preview",
@@ -457,14 +496,19 @@ def prepare_for_upload(audio_path: Path, temp_dir: Path) -> Path:
 # -- engines -----------------------------------------------------------------
 
 class OpenAITranscribeEngine:
-    """OpenAI's audio transcription endpoint.
+    """OpenAI's audio transcription endpoint -- and everything shaped like it.
 
     `whisper-1` returns per-segment timestamps; the GPT-4o transcribe models are
     more accurate but return plain text only, so a transcript from those has one
     segment covering the whole episode and cannot carry timestamps or chapters.
+
+    Groq serves Whisper behind the same request and response shape on purpose,
+    so its engine is this class with a different address and key -- one code
+    path, tested once, rather than a near-copy that drifts.
     """
 
     URL = "https://api.openai.com/v1/audio/transcriptions"
+    PROVIDER = "openai"
 
     def __init__(self, app, choice: ModelChoice) -> None:
         self.app = app
@@ -474,17 +518,22 @@ class OpenAITranscribeEngine:
                    on_progress=None):
         from podharvest.transcribe import TranscriptResult, TranscriptSegment
 
-        key = load_key(self.app, "openai")
+        label = PROVIDERS[self.PROVIDER].label
+        key = load_key(self.app, self.PROVIDER)
         if not key:
-            raise HarvestError("No OpenAI API key is configured. Add one in Settings.")
+            raise HarvestError(f"No {label} API key is configured. Add one in Settings.")
 
         upload = prepare_for_upload(audio_path, Path(self.app.temp_dir))
-        LOG.info("Uploading %.1f MB to OpenAI (%s)...",
-                 upload.stat().st_size / 2 ** 20, self.choice.model)
+        LOG.info("Uploading %.1f MB to %s (%s)...",
+                 upload.stat().st_size / 2 ** 20, label, self.choice.model)
         if on_progress:
             on_progress(5.0)
 
-        wants_segments = self.choice.model == "whisper-1"
+        # Which models can return timestamps is recorded on the catalogue
+        # entry, not guessed from the name -- Groq's Whisper does, OpenAI's
+        # GPT-4o models do not, and a hardcoded model-name check here was why
+        # only whisper-1 ever asked for them.
+        wants_segments = bool(self.choice.provides_timestamps)
 
         def one(part: Path):
             fields = {"model": self.choice.model,
@@ -503,14 +552,14 @@ class OpenAITranscribeEngine:
             if not segments:
                 text = (payload.get("text") or "").strip()
                 if not text:
-                    raise HarvestError("OpenAI returned an empty transcript.")
+                    raise HarvestError(f"{label} returned an empty transcript.")
                 segments = [TranscriptSegment(start=0.0, end=duration, text=text)]
             return segments, payload.get("language") or "en", duration
 
         t0 = time.monotonic()
         try:
             segments, language, duration = transcribe_in_parts(
-                upload, Path(self.app.temp_dir), "openai", one, on_progress)
+                upload, Path(self.app.temp_dir), self.PROVIDER, one, on_progress)
         finally:
             upload.unlink(missing_ok=True)
         elapsed = time.monotonic() - t0
@@ -519,9 +568,125 @@ class OpenAITranscribeEngine:
 
         return TranscriptResult(
             segments=segments, language=language,
-            engine="cloud:openai", model=self.choice.model,
+            engine=f"cloud:{self.PROVIDER}", model=self.choice.model,
             audio_seconds=duration or (segments[-1].end if segments else 0.0),
             transcribe_seconds=elapsed)
+
+
+class GroqTranscribeEngine(OpenAITranscribeEngine):
+    """Whisper on Groq's hardware, through their OpenAI-compatible endpoint.
+
+    The compatibility is Groq's own promise, which is why this is a subclass
+    with two constants rather than new code: the request, the verbose_json
+    reply and the segment shape are all the parent's.
+    """
+
+    URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+    PROVIDER = "groq"
+
+
+class ElevenLabsTranscribeEngine:
+    """ElevenLabs' Scribe: accuracy-first, with speakers labelled in-pass.
+
+    Scribe returns one flat word list with per-word times and speaker ids
+    rather than ready-made segments, so segments are assembled here: a new one
+    starts when the speaker changes or the audio goes quiet for a moment,
+    which is where a human transcriber would break the line too.
+    """
+
+    URL = "https://api.elevenlabs.io/v1/speech-to-text"
+    PROVIDER = "elevenlabs"
+
+    #: A silence this long between words starts a new segment. Scribe's word
+    #: times make the gap explicit, so no heuristics about punctuation.
+    PAUSE_SECONDS = 1.0
+    #: And no segment runs longer than this even in unbroken speech, because a
+    #: three-minute "segment" defeats the point of timestamps.
+    MAX_SEGMENT_SECONDS = 30.0
+
+    def __init__(self, app, choice: ModelChoice) -> None:
+        self.app = app
+        self.choice = choice
+
+    def transcribe(self, audio_path: Path, *, include_word_timestamps: bool,
+                   on_progress=None):
+        from podharvest.transcribe import TranscriptResult
+
+        key = load_key(self.app, self.PROVIDER)
+        if not key:
+            raise HarvestError("No ElevenLabs API key is configured. Add one in Settings.")
+
+        upload = prepare_for_upload(audio_path, Path(self.app.temp_dir))
+        LOG.info("Uploading %.1f MB to ElevenLabs (%s)...",
+                 upload.stat().st_size / 2 ** 20, self.choice.model)
+        if on_progress:
+            on_progress(5.0)
+
+        def one(part: Path):
+            fields = {"model_id": self.choice.model, "diarize": "true",
+                      "tag_audio_events": "false"}
+            body, content_type = _multipart(fields, "file", part)
+            payload = _post(self.URL, headers={"xi-api-key": key},
+                            data=body, content_type=content_type)
+            segments = self._segments_from(payload)
+            duration = segments[-1].end if segments else 0.0
+            language = str(payload.get("language_code") or "en").split("-")[0]
+            return segments, language, duration
+
+        t0 = time.monotonic()
+        try:
+            segments, language, duration = transcribe_in_parts(
+                upload, Path(self.app.temp_dir), self.PROVIDER, one, on_progress)
+        finally:
+            upload.unlink(missing_ok=True)
+        elapsed = time.monotonic() - t0
+        if on_progress:
+            on_progress(100.0)
+
+        return TranscriptResult(
+            segments=segments, language=language,
+            engine=f"cloud:{self.PROVIDER}", model=self.choice.model,
+            audio_seconds=duration, transcribe_seconds=elapsed)
+
+    def _segments_from(self, payload: dict) -> list:
+        from podharvest.transcribe import TranscriptSegment
+
+        words = [w for w in (payload.get("words") or [])
+                 if isinstance(w, dict) and w.get("type", "word") == "word"]
+        if not words:
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                raise HarvestError("ElevenLabs returned an empty transcript.")
+            return [TranscriptSegment(start=0.0, end=0.0, text=text)]
+
+        segments: list[TranscriptSegment] = []
+        bucket: list[dict] = []
+
+        def flush() -> None:
+            if not bucket:
+                return
+            speaker = bucket[0].get("speaker_id")
+            segments.append(TranscriptSegment(
+                start=float(bucket[0].get("start") or 0.0),
+                end=float(bucket[-1].get("end") or 0.0),
+                text=" ".join(str(w.get("text") or "").strip()
+                              for w in bucket).strip(),
+                speaker=str(speaker).replace("speaker_", "Speaker ")
+                if speaker is not None else None,
+            ))
+            bucket.clear()
+
+        for word in words:
+            if bucket:
+                gap = float(word.get("start") or 0.0) - float(bucket[-1].get("end") or 0.0)
+                length = float(word.get("end") or 0.0) - float(bucket[0].get("start") or 0.0)
+                if (word.get("speaker_id") != bucket[0].get("speaker_id")
+                        or gap >= self.PAUSE_SECONDS
+                        or length >= self.MAX_SEGMENT_SECONDS):
+                    flush()
+            bucket.append(word)
+        flush()
+        return segments
 
 
 class GeminiTranscribeEngine:
@@ -647,6 +812,10 @@ def build_cloud_engine(app, choice: ModelChoice):
         from podharvest.azure_mai import AzureMaiTranscribeEngine
 
         return AzureMaiTranscribeEngine(app, choice)
+    if choice.provider == "groq":
+        return GroqTranscribeEngine(app, choice)
+    if choice.provider == "elevenlabs":
+        return ElevenLabsTranscribeEngine(app, choice)
     label = PROVIDERS[choice.provider].label if choice.provider in PROVIDERS else choice.provider
     raise HarvestError(
         f"{label} does not offer speech-to-text. Pick an OpenAI or Gemini model, "
@@ -740,6 +909,8 @@ class CloudSummariser:
 PROVIDER_MAX_UPLOAD_BYTES = {
     "openai": 24 * 1024 * 1024,        # documented limit is 25 MB
     "gemini": 14 * 1024 * 1024,        # 20 MB request cap / 1.34 for base64
+    "groq": 24 * 1024 * 1024,          # free-tier limit is 25 MB
+    "elevenlabs": 95 * 1024 * 1024,    # comfortably under Scribe's file cap
 }
 
 
