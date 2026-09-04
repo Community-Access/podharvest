@@ -240,6 +240,15 @@ upload and thrown away afterwards.
 Uncheck **Transcribe downloaded audio**. podHarvest becomes a straightforward podcast
 downloader that also saves the show notes properly.
 
+### Only the episodes about one thing
+
+Put a word or two in **Only episodes matching** and podHarvest takes only the
+episodes whose titles contain them — all the words, any order, ignoring case.
+It runs *before* the episode limit, so "5 episodes matching badger" means five
+about badgers rather than however many badgers happen to be in the latest five.
+
+On the command line: `podharvest fetch <url> --match badger --limit 5`.
+
 ### Only the last few episodes
 
 Set **Limit episodes** to the number you want. Leave it at 0 for the entire series.
@@ -334,6 +343,26 @@ It prints where everything lives, whether FFmpeg is present, whether podHarvest
 can install packages at all, and for each engine whether its packages are
 downloaded **and whether they actually load** — which are different questions.
 It is written to be pasted straight into a bug report.
+
+## Hearing a run without watching it
+
+podHarvest's activity log cannot announce itself to a screen reader. That is a
+real limitation of the toolkit, not an oversight, and it is written up honestly
+in the [accessibility statement](docs/ACCESSIBILITY.md). It means a long run is
+otherwise silent: an hour of transcription finishes, or fails on the third
+episode of forty, and nothing says so unless you happen to be reading the log.
+
+Turn on **Play a short sound as each episode finishes** in Settings and you get
+four cues you can tell apart by ear while doing something else:
+
+| Sound | What it means |
+|---|---|
+| One short tone | An episode finished |
+| A rising pair | The whole run finished |
+| A low tone | Something failed |
+| A falling pair | You stopped the run |
+
+Off by default, because a sound nobody asked for is an intrusion.
 
 ## When something goes wrong
 

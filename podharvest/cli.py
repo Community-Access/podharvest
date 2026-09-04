@@ -110,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument("--transcribe", action="store_true", help="Transcribe downloaded audio on-device.")
     p_fetch.add_argument("--engine", metavar="ENGINE", help="ASR engine to use, e.g. faster-whisper, parakeet, parakeet-onnx.")
     p_fetch.add_argument("--model", metavar="MODEL", help="ASR model to use, e.g. small.en, parakeet-tdt-0.6b-v2.")
+    p_fetch.add_argument("--match", metavar="TERM",
+                          help="Only episodes whose title contains TERM (all its "
+                              "words, any order, case insensitive). Applied "
+                              "before --limit.")
     p_fetch.add_argument("--limit", type=_limit_type, metavar="N|all",
                           help="Only process the first N episodes, or 'all' (default: saved setting, then all).")
     p_fetch.add_argument("--timestamps", dest="timestamps", action="store_true", default=None,
@@ -462,6 +466,8 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     settings.last_feed_url = url
     settings.output_dir = output_dir
     settings.episode_limit = limit
+    if args.match is not None:
+        settings.episode_match = args.match
     settings.transcribe = args.transcribe or settings.transcribe
     if args.engine:
         settings.asr_engine = args.engine
@@ -512,6 +518,7 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
         include_timestamps=settings.include_timestamps,
         identify_speakers=settings.identify_speakers,
         limit=limit,
+        match=settings.episode_match,
         hf_token=hf_token,
     )
 

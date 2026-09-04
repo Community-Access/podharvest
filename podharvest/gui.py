@@ -35,7 +35,7 @@ import threading
 import time
 from pathlib import Path
 
-from podharvest import DISPLAY_NAME, SUPPORT_EMAIL, __version__
+from podharvest import DISPLAY_NAME, SUPPORT_EMAIL, __version__, cues
 from podharvest import appspace as appspace_mod
 from podharvest import config as config_mod
 from podharvest import hardware as hardware_mod
@@ -298,6 +298,18 @@ class SettingsDialog(wx.Dialog):
             "either way, because that is where they belong."
         )
         box.Add(self.chk_local_beside, 0, wx.ALL, 6)
+
+        self.chk_sound_cues = wx.CheckBox(
+            holder, label="Play a short &sound as each episode finishes")
+        self.chk_sound_cues.SetValue(self.settings.sound_cues)
+        self.chk_sound_cues.SetToolTip(
+            "One short tone per episode, a rising pair when the run ends, a "
+            "low tone if something failed. This is the only thing that reports "
+            "progress without you reading the activity log, which cannot "
+            "announce itself to a screen reader. Off by default because a "
+            "sound nobody asked for is an intrusion."
+        )
+        box.Add(self.chk_sound_cues, 0, wx.ALL, 6)
 
         self.chk_local_recurse = wx.CheckBox(
             holder, label="Include su&bfolders when I add a folder")
@@ -635,6 +647,7 @@ class SettingsDialog(wx.Dialog):
             _parse_rates(self.rates_ctrl.GetValue()))
         settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()
         settings.local_recurse_folders = self.chk_local_recurse.GetValue()
+        settings.sound_cues = self.chk_sound_cues.GetValue()
 
 
 def _rates_text(rates) -> str:
@@ -1606,7 +1619,7 @@ class MainFrame(wx.Frame):
     def _build_feed_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Feed")
         holder = box.GetStaticBox()
-        grid = wx.FlexGridSizer(1, 3, 8, 8)
+        grid = wx.FlexGridSizer(2, 3, 8, 8)
         grid.AddGrowableCol(1, 1)
 
         url_label = wx.StaticText(holder, label="Feed &URL:")
@@ -1624,6 +1637,22 @@ class MainFrame(wx.Frame):
         self.url_ctrl.SetHint("https://example.com/feed")
         grid.Add(url_label, 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.url_ctrl, 1, wx.EXPAND)
+        grid.Add(wx.StaticText(holder, label=""))
+
+        # Label before control, so a screen reader pairs the two.
+        match_label = wx.StaticText(holder, label="Only episodes &matching:")
+        self.match_ctrl = wx.TextCtrl(holder, value="")
+        self.match_ctrl.SetToolTip(
+            "Leave empty for every episode. Otherwise only episodes whose "
+            "title contains what you type -- all of the words, in any order, "
+            "ignoring case. Applied before the episode limit, so \"5 episodes "
+            "matching badger\" means five about badgers rather than any "
+            "badgers among the five most recent."
+        )
+        self.match_ctrl.SetHint("part of an episode title")
+        set_accessible_name(self.match_ctrl, "Only episodes matching")
+        grid.Add(match_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.match_ctrl, 1, wx.EXPAND)
         grid.Add(wx.StaticText(holder, label=""))
 
         box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
@@ -1935,6 +1964,7 @@ class MainFrame(wx.Frame):
         self.url_ctrl.SetValue(s.last_feed_url or self.url_ctrl.GetValue())
         self.output_ctrl.SetValue(config_mod.resolved_output_dir(self.app_space, s))
         self.limit_ctrl.SetValue(s.episode_limit or 0)
+        self.match_ctrl.SetValue(s.episode_match)
         self.chk_download.SetValue(s.download_enclosures)
         self.chk_transcribe.SetValue(s.transcribe)
         self.chk_timestamps.SetValue(s.include_timestamps)
@@ -1959,6 +1989,7 @@ class MainFrame(wx.Frame):
         s.last_feed_url = self.url_ctrl.GetValue().strip()
         s.output_dir = self.output_ctrl.GetValue().strip()
         s.episode_limit = self.limit_ctrl.GetValue() or None
+        s.episode_match = self.match_ctrl.GetValue().strip()
         s.download_enclosures = self.chk_download.GetValue()
         s.transcribe = self.chk_transcribe.GetValue()
         s.include_timestamps = self.chk_timestamps.GetValue()
@@ -2388,6 +2419,10 @@ class MainFrame(wx.Frame):
         overall = self.progress.GetValue()
         if prog.state in {"done", "failed", "skipped"}:
             self._counts[prog.state] = self._counts.get(prog.state, 0) + 1
+            # The log cannot announce itself, so this is the only thing that
+            # reports an episode finishing without you watching for it.
+            cues.play("failed" if prog.state == "failed" else "episode",
+                      enabled=self.settings.sound_cues)
             self.episode_list.SetItem(row, 4, spoken_duration(prog.elapsed))
             # Keep the newest finished row in view without stealing focus.
             self.episode_list.EnsureVisible(row)
@@ -2640,6 +2675,7 @@ class MainFrame(wx.Frame):
                 include_timestamps=timestamps,
                 identify_speakers=speakers,
                 limit=limit,
+                match=self.settings.episode_match,
                 cancel_event=self._cancel_event,
                 progress_callback=lambda pct: wx.CallAfter(self.progress.SetValue, int(pct)),
                 episode_callback=lambda prog: self._ui(self._on_episode_progress, prog),
@@ -2696,6 +2732,10 @@ class MainFrame(wx.Frame):
                      f"of them is in:\n{where}")
             icon = wx.ICON_WARNING if failed else wx.ICON_INFORMATION
 
+        cues.play(
+            "failed" if self._run_failed else
+            ("cancelled" if cancelled else "finished"),
+            enabled=self.settings.sound_cues)
         self.progress.SetValue(100 if not cancelled and not self._run_failed
                                else self.progress.GetValue())
         self._set_progress_text(f"{headline} {body.splitlines()[0]}")

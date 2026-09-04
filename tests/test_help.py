@@ -46,9 +46,13 @@ class TestCoverage:
             if "import wx" in path.read_text(encoding="utf-8")
         }
         # a11y.py and help.py hold helpers; cli.py imports wx only to launch
-        # the GUI. None of the three builds a control. Everything else must be
-        # scanned, or a whole window could go undocumented unnoticed.
-        assert with_wx - set(help_audit.SCAN_FILES) <= {"a11y.py", "help.py", "cli.py"}
+        # the GUI; cues.py imports it only to ring the system bell where there
+        # is no tone generator. None of the four builds a control. Everything
+        # else must be scanned, or a whole window could go undocumented
+        # unnoticed -- which is what this gate is for, so the exception list
+        # earns its keep only while every entry has a reason written beside it.
+        allowed = {"a11y.py", "help.py", "cli.py", "cues.py"}
+        assert with_wx - set(help_audit.SCAN_FILES) <= allowed
 
 
 class TestWindowPurposes:

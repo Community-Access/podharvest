@@ -54,6 +54,19 @@ First public release.
   still missing -- the engine's packages and the model weights are separate
   downloads and either can be absent on its own -- and a **Download model**
   button fetches them on the spot, using the same calls a run makes.
+- **Take only the episodes you want.** **Only episodes matching** takes a word
+  or two and keeps the episodes whose titles contain them -- all of them, any
+  order, ignoring case. It runs before the episode limit, so "5 episodes
+  matching badger" means five about badgers rather than however many badgers
+  are in the latest five. `--match TERM` on the command line.
+- **Hear a run without watching it.** The activity log cannot announce itself
+  to a screen reader -- a toolkit limitation, documented, not fixable here --
+  so a long run is otherwise silent. Optional short tones now report it: one
+  per episode, a rising pair at the end, a low tone for a failure and a falling
+  pair when you stop it. Told apart by pitch and shape rather than by counting,
+  played off the UI thread, and off by default.
+  - Both ideas come from the small script this program grew out of, by Michael
+    Babcock, which filtered by search term and beeped as each download landed.
 - **An "Already downloaded" filter** on the model picker, so getting back to a
   model you have used before does not mean reading the whole list. Each filter
   is now enabled on its own terms -- cloud needs an API key, "Already

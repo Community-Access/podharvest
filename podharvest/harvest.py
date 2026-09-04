@@ -266,6 +266,29 @@ def _transcribe_episode(engine, ep, feed_dir: Path, *, format_opt: transcribe_mo
     return ep.title, result.audio_seconds, elapsed
 
 
+def match_episodes(episodes, term: str) -> list:
+    """The episodes whose title contains *term*, case-insensitively.
+
+    Substring rather than whole-word, because the useful searches are things
+    like "badger" against "Badgers, Revisited" and "part 2" against "Interview
+    (Part 2)". Titles only: show notes are long, and a term that appears once
+    in a paragraph of credits is not what anybody meant by "episodes about X".
+
+    Every term in *term* must appear, in any order, so "badger interview"
+    finds "The Badger Interview" and "Interview: Badgers" alike. An empty term
+    matches everything, which is what "no filter" should mean.
+    """
+    words = [word for word in str(term).lower().split() if word]
+    if not words:
+        return list(episodes)
+    kept = []
+    for episode in episodes:
+        title = str(getattr(episode, "title", "") or "").lower()
+        if all(word in title for word in words):
+            kept.append(episode)
+    return kept
+
+
 def transcribe_all(episodes, feed_dir: Path, *, app: AppSpace, settings,
                    model: ModelChoice | None = None, include_timestamps: bool = True,
                    identify_speakers: bool = False, hf_token: str | None = None,
@@ -468,6 +491,7 @@ def run_harvest(url: str, *, app: AppSpace, settings: config_mod.Settings | None
                 output_dir: str | None = None, download: bool = True, transcribe: bool = False,
                 model: ModelChoice | None = None, include_timestamps: bool = True,
                 identify_speakers: bool = False, limit: int | None = None,
+                match: str | None = None,
                 cancel_event: threading.Event | None = None,
                 progress_callback: Callable[[float], None] | None = None,
                 episode_callback: Callable[[EpisodeProgress], None] | None = None,
@@ -481,6 +505,21 @@ def run_harvest(url: str, *, app: AppSpace, settings: config_mod.Settings | None
 
     LOG.info("Reading the podcast feed: %s", url)
     feed = feed_mod.fetch_and_parse(url, client, follow_pagination=settings.follow_pagination)
+
+    # Narrow to what was asked for *before* the limit, so "the 5 most recent
+    # episodes about badgers" means that, rather than "any badgers among the 5
+    # most recent". Filtering after limiting is the more obvious order to write
+    # and almost never the one anybody wants.
+    wanted = (match if match is not None else getattr(settings, "episode_match", "")) or ""
+    if wanted.strip():
+        before = len(feed.episodes)
+        feed.episodes = match_episodes(feed.episodes, wanted)
+        LOG.info("%d of %d episode(s) match '%s'.",
+                 len(feed.episodes), before, wanted.strip())
+        if not feed.episodes:
+            LOG.warning("Nothing matches '%s'. Check the spelling, or clear the "
+                        "filter to take everything.", wanted.strip())
+
     if limit:
         feed.episodes = feed.episodes[:limit]
         for i, ep in enumerate(feed.episodes):

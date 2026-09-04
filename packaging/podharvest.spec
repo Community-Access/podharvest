@@ -177,6 +177,7 @@ a = Analysis(
         "podharvest.help",
         "podharvest.library",
         "podharvest.localfiles",
+        "podharvest.cues",
         "podharvest.reader",
         "podharvest.media_health",
         "podharvest.player",

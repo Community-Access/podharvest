@@ -629,6 +629,8 @@ importable".
 | `naming_template` | Per-episode file naming. Placeholders: `{date}` `{slug}` `{title}` `{index}` `{season}` `{number}` `{year}` `{month}` `{day}` |
 | `log_verbosity` | Default `-v` level when none is given on the command line |
 | `source_mode` | Which source the main window opens on: `feed` or `local` |
+| `episode_match` | Only episodes whose titles contain these words (any order, case insensitive). Applied before `episode_limit` |
+| `sound_cues` | Short tones as a run proceeds. Off by default |
 | `local_transcripts_beside_file` | Local-file transcripts next to the audio (default), or in `<output>/Local files` |
 | `local_recurse_folders` | Adding a folder includes its subfolders (default on) |
 | `playback_rates` | The speeds the player offers, as a list. 0.25-5.0; 1.0 is always kept. Default `[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]` |

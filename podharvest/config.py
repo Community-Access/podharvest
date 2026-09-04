@@ -130,6 +130,14 @@ class Settings:
     # always kept, so there is always a way back to normal.
     # Local files: where a transcript for a file you already had goes, and
     # whether choosing a folder means everything under it.
+    # Short tones as a run proceeds. Off by default: a sound nobody asked for
+    # is an intrusion. On, it is the only thing that reports progress without
+    # you reading the log, which cannot announce itself -- see cues.py.
+    sound_cues: bool = False
+    # Only take episodes whose titles match this. Empty means everything.
+    # Applied before the episode limit, so "the 5 most recent about badgers"
+    # means that rather than "any badgers among the 5 most recent".
+    episode_match: str = ""
     local_transcripts_beside_file: bool = True
     local_recurse_folders: bool = True
     # Which source the main window is on. Remembered because somebody using
