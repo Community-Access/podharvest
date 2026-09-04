@@ -859,6 +859,7 @@ The most important limitation to know about: **the activity log does not announc
 ./scripts/build_installer.ps1          # portable .zip via PyInstaller
 ./scripts/build_installer.ps1 -Clean   # force a from-scratch rebuild
 ./scripts/build_installer.ps1 -Inno    # also build a conventional Windows installer
+./scripts/build_installer.ps1 -Sign    # Authenticode-sign the result
 ```
 
 The base command creates an isolated build environment, runs PyInstaller against [`packaging/podharvest.spec`](../packaging/podharvest.spec) (a one-folder build so ASR models keep installing on demand rather than bloating the executable), marks the output as portable, and zips it as `dist/podharvest-<version>-win64-portable.zip`.
@@ -873,6 +874,36 @@ Passing `-Inno` additionally compiles [`installer/podharvest.iss`](../installer/
 The build script checks the version with `ISCC --version` (itself a 7-only option) and says so plainly rather than letting the compile fail later on an unknown directive. It compiles with `--messages-jsonl`, which puts errors and warnings on stderr as JSON Lines for a CI job to read without parsing prose.
 
 Version 7 installs alongside 6 rather than replacing it, and winget puts it under `%LOCALAPPDATA%\Programs\Inno Setup 7`; the script looks there first.
+
+### Reproducible builds
+
+Packages are installed from [`requirements-build.lock`](../requirements-build.lock), which pins every dependency — direct and transitive — to one version and one set of SHA-256 hashes. `pip --require-hashes` then either installs exactly what was reviewed or fails: a swapped, tampered or yanked-and-republished wheel cannot enter a release quietly. Regenerate it deliberately when a pin should change, never as a side effect of a build:
+
+```powershell
+uv pip compile requirements.txt requirements-build.txt --generate-hashes `
+  --python .buildenv\Scripts\python.exe -o requirements-build.lock
+```
+
+A build with the lock file missing falls back to the unpinned requirements and warns that it is not reproducible.
+
+Each build also writes `dist/SHA256SUMS.txt` for whatever it produced. A signature says who built something; a hash lets someone confirm their download arrived intact without trusting any certificate chain.
+
+### Code signing
+
+`-Sign` Authenticode-signs every executable image in the bundle before it is zipped, and the installer after it is compiled. Signing the launcher alone would not help: a bundle whose `.exe` is signed still loads unsigned `.dll` and `.pyd` files beside it, so `*.exe`, `*.dll` and `*.pyd` are all covered.
+
+Signing goes through **Azure Trusted Signing**, so there is no PFX and no private key on any build machine. `signtool.exe` loads a Microsoft-supplied library that submits a digest to the signing service and receives a short-lived certificate; authentication is the ambient Azure credential (`az login` locally, a workload identity in CI). The account and certificate profile are named in [`installer/signing-metadata.json`](../installer/signing-metadata.json), which holds no secrets. The signing library itself is pinned by version and SHA-256 and staged into `build/deps/`, the same treatment every other build input gets.
+
+Because the certificates are short-lived, every signature is timestamped against Microsoft's timestamp authority. Without that a signature would go invalid within days.
+
+Check a machine before relying on it, and verify afterwards:
+
+```powershell
+python scripts/code_signing.py doctor
+python scripts/code_signing.py verify-tree dist/podharvest
+```
+
+This matters more here than for most programs: unsigned installers raise a SmartScreen warning, and that warning is at its least helpful read aloud.
 
 The resulting `podharvest.exe` (either build) keeps all of its models/cache/config in one folder - for the portable build, copy that folder anywhere (including a USB drive) and it keeps working.
 

@@ -316,6 +316,11 @@ class SettingsDialog(wx.Dialog):
         self._content.FitInside()
         self._on_toggle_log(None)
         self._on_toggle_summaries(None)
+        # Focus opens on the first setting, not the default OK button: a
+        # dialog that opens on OK reads as "Settings dialog, OK button" and
+        # says nothing about what can be changed. Enter still accepts from
+        # anywhere, so nothing is lost.
+        self.chk_log_file.SetFocus()
 
     def _build_directory_settings(self) -> wx.StaticBoxSizer:
         """Where podcast searches look, and how much they bring back."""
@@ -1160,7 +1165,9 @@ class MainFrame(wx.Frame):
         bar.Append(view_menu, "&View")
 
         # -- Episode: whatever is highlighted in the list -------------------
-        episode_menu = wx.Menu()
+        # Kept as an attribute so opening it can dim the entries the
+        # highlighted row cannot use; see _on_menu_open.
+        self._episode_menu = episode_menu = wx.Menu()
         self._menu_play = episode_menu.Append(
             wx.ID_ANY, "&Play or pause\tCtrl+P",
             "Play the highlighted episode, or pause it if it is playing")
@@ -1253,6 +1260,8 @@ class MainFrame(wx.Frame):
                   self._menu_transcript)
         self.Bind(wx.EVT_MENU, self._on_edit_tags, self._menu_edit_tags)
         self.Bind(wx.EVT_MENU, self._on_reveal_episode, self._menu_reveal)
+
+        self.Bind(wx.EVT_MENU_OPEN, self._on_menu_open)
 
         self.Bind(wx.EVT_MENU, self._on_focus_log, self._menu_focus_log)
         self.Bind(wx.EVT_MENU, lambda evt: self.episode_list.SetFocus(),
@@ -1695,8 +1704,10 @@ class MainFrame(wx.Frame):
         # a real focusable list rather than a redrawn label, so it can be
         # reviewed row by row at any point in a run without waiting for an
         # announcement to happen to arrive.
-        episodes_label = wx.StaticText(panel, label="&Episodes:")
-        outer.Add(episodes_label, 0, wx.LEFT | wx.RIGHT, 10)
+        # Kept as an attribute: local mode relabels it "Files", because the
+        # rows there are recordings you already had, not episodes of anything.
+        self.episodes_label = wx.StaticText(panel, label="&Episodes:")
+        outer.Add(self.episodes_label, 0, wx.LEFT | wx.RIGHT, 10)
         self.episode_list = wx.ListCtrl(
             panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SUNKEN)
         # Five columns whose *headings* change with what the list is showing.
@@ -1716,6 +1727,9 @@ class MainFrame(wx.Frame):
                                lambda _e: self._on_episode_selected())
         self.episode_list.Bind(wx.EVT_LIST_ITEM_DESELECTED,
                                lambda _e: self._on_episode_selected())
+        # Right-click, Shift+F10 or the Applications key: the same actions
+        # the Episode menu offers, without leaving the list.
+        self.episode_list.Bind(wx.EVT_CONTEXT_MENU, self._on_list_context_menu)
         self.episode_list.SetToolTip("Every episode in this run and how far along it is. "
                                      "Arrow up and down to review them at any time.")
         outer.Add(self.episode_list, 1, wx.EXPAND | wx.ALL, 10)
@@ -1817,6 +1831,9 @@ class MainFrame(wx.Frame):
             skip_back_ms=self.settings.skip_back_ms,
             skip_forward_ms=self.settings.skip_forward_ms,
             rates=self.settings.playback_rates,
+            # The button must load the highlighted episode first, exactly as
+            # Ctrl+P does; a bare toggle with nothing loaded does nothing.
+            on_play_request=self._on_play_selected,
         )
         box.Add(self.player, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         self.player.Enable(False)
@@ -1865,18 +1882,116 @@ class MainFrame(wx.Frame):
         title = self._selected_episode_title()
         if not title:
             self.player.Enable(False)
-            self.now_playing.SetLabel("Select an episode to play it.")
+            # Named for what the rows are: files in local mode, episodes
+            # otherwise. "Episode" said about your own recording is exactly
+            # the wrong-sounding word this window exists to avoid.
+            self.now_playing.SetLabel(
+                "Select a file to play it."
+                if self.source_mode() == "local"
+                else "Select an episode to play it.")
             return
         self.player.Enable(True)
         if self._loaded_audio_title != title:
             self.now_playing.SetLabel(f"Ready to play: {title}")
+
+    def _selection_abilities(self) -> dict[str, bool]:
+        """What the highlighted row can actually do, for dimming menu items.
+
+        A dimmed entry is how a menu explains itself: "Read the transcript"
+        greyed out answers "is there one?" before it is asked. Built from
+        flags the rows already carry plus one file-existence check, because
+        it runs every time a menu opens. Rows the window knows nothing about
+        yet -- a feed being browsed, a run in progress -- report everything
+        possible, and the handlers say what is actually missing.
+        """
+        local = self._selected_local_file()
+        if local is not None:
+            there = local.path.is_file()
+            return {"selected": True, "audio": there,
+                    "transcript": local.has_transcript, "local": True}
+        episode = self._selected_library_episode()
+        if episode is not None:
+            return {"selected": True, "audio": episode.has_audio,
+                    "transcript": episode.transcript is not None,
+                    "local": False}
+        selected = bool(self._selected_episode_title())
+        return {"selected": selected, "audio": selected,
+                "transcript": selected, "local": False}
+
+    def _on_menu_open(self, evt) -> None:
+        """Dim the Episode menu's entries to match the highlighted row."""
+        if evt.GetMenu() is not getattr(self, "_episode_menu", None):
+            evt.Skip()
+            return
+        able = self._selection_abilities()
+        loaded = self._loaded_audio_path is not None
+        self._menu_play.Enable(able["audio"])
+        # Rewind and Forward move a playhead, so they need one to exist.
+        self._menu_rewind.Enable(loaded)
+        self._menu_forward.Enable(loaded)
+        # Jump to chapter works on the loaded file, or loads the row first.
+        self._menu_chapters.Enable(loaded or able["audio"])
+        self._menu_transcript.Enable(able["transcript"])
+        # Edit tags stays enabled: with nothing highlighted it asks which
+        # file to open, which is a feature, not an accident.
+        self._menu_reveal.Enable(able["audio"])
+        evt.Skip()
+
+    def _on_list_context_menu(self, _evt) -> None:
+        """The Episode menu's actions, on the list row they act on.
+
+        Built fresh on each opening rather than kept, because what it should
+        offer depends on the mode -- a local file can be removed from the
+        list, an episode cannot -- and on what the row has: entries the row
+        cannot use are dimmed, not hidden, so the full set stays learnable.
+        Every entry reuses the handler its menu-bar twin uses, so the two
+        can never drift apart.
+        """
+        able = self._selection_abilities()
+        menu = wx.Menu()
+        entries = [
+            ("&Play or pause",
+             "Play the highlighted row, or pause it if it is playing",
+             self._on_play_selected, able["audio"]),
+            ("&Jump to a chapter...",
+             "List its chapter markers and continue from one",
+             self._on_jump_to_chapter,
+             able["audio"] or self._loaded_audio_path is not None),
+            ("Read the &transcript",
+             "Open its transcript, with a search box",
+             self._on_read_transcript, able["transcript"]),
+            ("&Edit tags and chapters...",
+             "Open its audio in the Tag and Chapter Editor",
+             lambda: self._on_edit_tags(None), True),
+            ("&Open containing folder",
+             "Open the folder holding its audio",
+             self._on_reveal_episode, able["audio"]),
+        ]
+        if able["local"] or self.source_mode() == "local":
+            entries.append(None)
+            entries.append((
+                "&Remove from list",
+                "Take this file out of the list. The file itself is not "
+                "touched.",
+                self._on_remove_files, able["selected"]))
+        for entry in entries:
+            if entry is None:
+                menu.AppendSeparator()
+                continue
+            label, help_text, action, enabled = entry
+            item = menu.Append(wx.ID_ANY, label, help_text)
+            item.Enable(enabled)
+            self.Bind(wx.EVT_MENU, lambda _e, act=action: act(), item)
+        self.episode_list.PopupMenu(menu)
+        menu.Destroy()
 
     def _on_play_selected(self) -> None:
         """Load the selected episode if it is not loaded, then play or pause."""
         local = self._selected_local_file()
         title = local.path.name if local is not None else self._selected_episode_title()
         if not title:
-            LOG.info("Select an episode first, then press Play.")
+            LOG.info("Select a %s first, then press Play.",
+                     "file" if self.source_mode() == "local" else "episode")
             return
         # A local file is identified by its path: two recordings can share a
         # title, and reloading the wrong one because the titles matched would
@@ -2068,7 +2183,7 @@ class MainFrame(wx.Frame):
         for label, handler, tip in (
             ("&Add files...",
              self._on_add_files,
-             "Choose one or more audio files. They appear in the Episodes list "
+             "Choose one or more audio files. They appear in the Files list "
              "below, where you can play them or edit their tags straight away "
              "-- you do not have to press Start first."),
             ("Add a &folder...",
@@ -2148,7 +2263,7 @@ class MainFrame(wx.Frame):
     def _on_remove_files(self, _evt=None) -> None:
         item = self._local_rows.get(self.episode_list.GetFirstSelected())
         if item is None:
-            LOG.info("Highlight a file in the Episodes list first, then press "
+            LOG.info("Highlight a file in the Files list first, then press "
                      "Remove. Your files are never deleted by this.")
             return
         self._local_paths = [p for p in self._local_paths if p != item.path]
@@ -2230,6 +2345,22 @@ class MainFrame(wx.Frame):
         self._outer.Show(self._local_box, local, recursive=True)
         # Downloading is a feed idea; a local file is already here.
         self.chk_download.Enable(not local)
+        # So is the episode limit: it caps how many are fetched, and local
+        # files are not fetched. Greyed rather than hidden so the Options
+        # box keeps its shape.
+        self.limit_ctrl.Enable(not local)
+        self._limit_label.Enable(not local)
+        # The list holds files now, not episodes of anything, and a screen
+        # reader says this label and name on every visit -- so both have to
+        # tell the truth about what the rows are.
+        self.episodes_label.SetLabel("&Files:" if local else "&Episodes:")
+        set_accessible_name(self.episode_list, "Files" if local else "Episodes")
+        self.episode_list.SetToolTip(
+            "The files you added and what each one has. Arrow up and down "
+            "to review them at any time."
+            if local else
+            "Every episode in this run and how far along it is. Arrow up "
+            "and down to review them at any time.")
         self.start_btn.SetLabel("&Start" if not local else "&Start on these files")
         set_accessible_name(self.start_btn,
                             self.start_btn.GetLabel().replace("&", ""))
@@ -2249,12 +2380,11 @@ class MainFrame(wx.Frame):
                 self.refresh_local_list()
             else:
                 self.refresh_library()
-            # Choosing "Find a podcast" should land you where the finding
-            # happens. Focus rather than opening the search window on its own:
-            # a modal appearing because an arrow key moved is startling, and
-            # arrowing a radio group is how you read what the options are.
+            # Focus stays on the radio group: arrowing through it is how you
+            # read what the options are, and yanking focus away mid-read
+            # strands you somewhere you did not ask to go. The status line
+            # says where the finding happens; Tab gets you there.
             if mode == "find":
-                self.find_btn.SetFocus()
                 self._set_progress_text(
                     "Type a podcast's name and press Find Podcast to search "
                     "Apple's directory.")
@@ -2677,7 +2807,10 @@ class MainFrame(wx.Frame):
         )
         self.chk_transcribe.Bind(wx.EVT_CHECKBOX, self._on_toggle_transcribe)
         limit_row = wx.BoxSizer(wx.HORIZONTAL)
-        limit_row.Add(wx.StaticText(holder, label="Limit episodes (0 = all):"), 0,
+        # Kept as an attribute so local mode can grey it with the control:
+        # a limit on episodes means nothing for files already on the disk.
+        self._limit_label = wx.StaticText(holder, label="Limit episodes (0 = all):")
+        limit_row.Add(self._limit_label, 0,
                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.limit_ctrl = wx.SpinCtrl(holder, min=0, max=100000, initial=0)
         self.limit_ctrl.SetToolTip(

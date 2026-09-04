@@ -15,6 +15,17 @@
 .PARAMETER Clean
     Remove any previous build/ and dist/ output before building.
 
+.PARAMETER Sign
+    Authenticode-sign the release through Azure Trusted Signing. Every
+    executable image in the bundle is signed before the zip is made, and the
+    Inno Setup installer is signed after it is compiled. Needs an Azure
+    credential ("az login") and the Windows SDK's signtool; check with
+    "python scripts/code_signing.py doctor".
+
+    Windows SmartScreen warns on unsigned installers, and that warning is at
+    its least helpful read aloud, so a public release is always signed.
+    Without this switch the build is unsigned and says so.
+
 .PARAMETER Inno
     Also compile installer/podharvest.iss into a conventional Windows
     installer (podharvest-<version>-setup.exe) using Inno Setup's ISCC.exe.
@@ -30,12 +41,29 @@
 #>
 param(
     [switch]$Clean,
-    [switch]$Inno
+    [switch]$Inno,
+    [switch]$Sign
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
+
+function Invoke-Signer {
+    <#
+        Run scripts/code_signing.py, which does the actual Trusted Signing
+        work, and turn any failure into a stopped build. Signing that fails
+        quietly is worse than not signing at all: the release looks finished
+        and every user still meets SmartScreen.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Python,
+        [Parameter(Mandatory)][string]$ScriptRoot,
+        [Parameter(Mandatory)][string[]]$Arguments
+    )
+    & $Python (Join-Path $ScriptRoot "scripts\code_signing.py") @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "Code signing failed (exit $LASTEXITCODE)." }
+}
 
 try {
     if ($Clean) {
@@ -51,8 +79,25 @@ try {
 
     Write-Host "[podharvest] Installing requirements..." -ForegroundColor Cyan
     & $venvPython -m pip install --disable-pip-version-check --quiet --upgrade pip
-    & $venvPython -m pip install --disable-pip-version-check --quiet -r "$root\requirements.txt"
-    & $venvPython -m pip install --disable-pip-version-check --quiet -r "$root\requirements-build.txt"
+    # A released binary is only as trustworthy as what went into it. The lock
+    # file pins every package, direct and transitive, to one version and one
+    # set of SHA-256 hashes, so a build either installs exactly what was
+    # reviewed or fails outright -- a tampered or swapped wheel cannot enter
+    # a release quietly. Regenerate it deliberately, never as a side effect:
+    #   uv pip compile requirements.txt requirements-build.txt \
+    #     --generate-hashes --python .buildenv\Scripts\python.exe \
+    #     -o requirements-build.lock
+    $lock = Join-Path $root "requirements-build.lock"
+    if (Test-Path $lock) {
+        & $venvPython -m pip install --disable-pip-version-check --quiet `
+            --require-hashes --no-deps -r $lock
+        if ($LASTEXITCODE -ne 0) { throw "Locked requirements failed to install. Regenerate requirements-build.lock if a pin changed on purpose." }
+    }
+    else {
+        Write-Warning "requirements-build.lock is missing; falling back to unpinned requirements. This build is not reproducible."
+        & $venvPython -m pip install --disable-pip-version-check --quiet -r "$root\requirements.txt"
+        & $venvPython -m pip install --disable-pip-version-check --quiet -r "$root\requirements-build.txt"
+    }
 
     Write-Host "[podharvest] Running PyInstaller..." -ForegroundColor Cyan
     & $venvPython -m PyInstaller "$root\packaging\podharvest.spec" --noconfirm --distpath "$root\dist" --workpath "$root\build"
@@ -62,6 +107,18 @@ try {
     New-Item -ItemType File -Path (Join-Path $distDir "portable.flag") -Force | Out-Null
     Copy-Item -Path (Join-Path $root "README.md") -Destination $distDir -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $root "LICENSE") -Destination $distDir -ErrorAction SilentlyContinue
+
+    # Signed before zipping, so the portable download carries signatures too.
+    # Every executable image is signed, not just the launcher: a bundle where
+    # only the .exe is signed still loads unsigned code beside it.
+    if ($Sign) {
+        Write-Host "[podharvest] Signing the application (Azure Trusted Signing)..." -ForegroundColor Cyan
+        Invoke-Signer -Python $venvPython -ScriptRoot $root -Arguments @("sign-tree", $distDir)
+        Invoke-Signer -Python $venvPython -ScriptRoot $root -Arguments @("verify-tree", $distDir)
+    }
+    else {
+        Write-Warning "No -Sign given: this build is UNSIGNED. Windows SmartScreen will warn users who run it."
+    }
 
     $version = (& $venvPython -c "import sys; sys.path.insert(0, '.'); from podharvest import __version__; print(__version__)").Trim()
     $zipName = "podharvest-$version-win64-portable.zip"
@@ -115,9 +172,31 @@ try {
             # want from a build log.
             & $iscc --quiet --messages-jsonl "/DMyAppVersion=$version" "$root\installer\podharvest.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
-            Write-Host "  Setup  : $root\dist\installer\podharvest-$version-setup.exe" -ForegroundColor Green
+            $setupPath = Join-Path $root "dist\installer\podharvest-$version-setup.exe"
+            # Signed after compiling, not before: the compiler writes the
+            # finished .exe, so anything signed earlier would be discarded.
+            if ($Sign) {
+                Invoke-Signer -Python $venvPython -ScriptRoot $root -Arguments @("sign", $setupPath)
+                Invoke-Signer -Python $venvPython -ScriptRoot $root -Arguments @("verify", $setupPath)
+            }
+            Write-Host "  Setup  : $setupPath" -ForegroundColor Green
         }
     }
+
+    # Checksums for whatever was produced. A signature proves who built it;
+    # a checksum lets somebody confirm the download arrived intact, which is
+    # the one check that works without any trust in a certificate chain.
+    $artifacts = @($zipPath)
+    if ($Inno) {
+        $setup = Join-Path $root "dist\installer\podharvest-$version-setup.exe"
+        if (Test-Path $setup) { $artifacts += $setup }
+    }
+    $sumsPath = Join-Path $root "dist\SHA256SUMS.txt"
+    $artifacts | Where-Object { Test-Path $_ } | ForEach-Object {
+        $hash = (Get-FileHash -Algorithm SHA256 $_).Hash.ToLower()
+        "$hash  $(Split-Path -Leaf $_)"
+    } | Set-Content -Path $sumsPath -Encoding ascii
+    Write-Host "  Hashes : $sumsPath" -ForegroundColor Green
 
     Write-Host ""
     Write-Host "Run it with: $distDir\podharvest.exe gui   (or 'hardware', 'fetch <url>', etc.)"

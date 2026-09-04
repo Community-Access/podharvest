@@ -36,7 +36,29 @@ class _Named(wx.Accessible):
         self._name = name
 
     def GetName(self, childId):  # noqa: N802 - wx API casing
-        return (wx.ACC_OK, self._name)
+        # Only the control itself gets the name. An MSAA accessible attached
+        # to a parent also answers for its child elements -- a notebook's
+        # tabs, a radio box's buttons -- and handing every child the same
+        # name makes each tab announce the notebook's name instead of its
+        # own. NOT_IMPLEMENTED hands children back to the platform default,
+        # which knows the tab titles.
+        if childId == wx.ACC_SELF:
+            return (wx.ACC_OK, self._name)
+        return (wx.ACC_NOT_IMPLEMENTED, "")
+
+
+#: Controls whose *children* do the talking: list rows, notebook tabs, radio
+#: buttons. `SetAccessible` replaces the native MSAA object for the control
+#: AND its children with wx's generic one, which knows far less than the
+#: native control does -- list rows announce as bare index numbers, every
+#: tab takes the parent's name. These controls keep their native accessible
+#: and get their name the native way instead: their own label, or the
+#: StaticText created just before them.
+#: CheckBox is here for a different reason: it has no children, but it
+#: carries its own label, and replacing its native accessible has been seen
+#: to stop the checked state being announced on toggle. The native object
+#: already says everything a checkbox has to say.
+_COMPOSITE = (wx.ListCtrl, wx.ListBox, wx.Notebook, wx.RadioBox, wx.CheckBox)
 
 
 def set_accessible_name(ctrl: wx.Window, name: str) -> None:
@@ -47,6 +69,8 @@ def set_accessible_name(ctrl: wx.Window, name: str) -> None:
     silently disappears.
     """
     ctrl.SetName(name)                  # still useful for FindWindowByName
+    if isinstance(ctrl, _COMPOSITE):
+        return
     try:
         helper = _Named(name)
         ctrl.SetAccessible(helper)

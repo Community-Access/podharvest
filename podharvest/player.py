@@ -60,9 +60,15 @@ class PlayerPanel(wx.Panel):
         skip_back_ms: int = SKIP_MS,
         skip_forward_ms: int = SKIP_MS,
         rates: tuple[float, ...] | list[float] | None = None,
+        on_play_request: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._announce_fn = announce
+        # The main window defers loading until Play is pressed, so its Play
+        # button must route through the window's load-then-toggle handler --
+        # a bare toggle() with nothing loaded does nothing, silently. The
+        # editor loads its file up front and leaves this None.
+        self._on_play_request = on_play_request
         self._stop_at: int | None = None
         self._on_tick_cb: Callable[[], None] | None = None
         self._loaded = False
@@ -89,7 +95,7 @@ class PlayerPanel(wx.Panel):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self._play_btn = wx.Button(self, label="&Play")
         self._play_btn.SetToolTip("Starts or pauses playback.")
-        self._play_btn.Bind(wx.EVT_BUTTON, lambda _e: self.toggle())
+        self._play_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_play_pressed())
         row.Add(self._play_btn, 0, wx.RIGHT, 6)
 
         stop_btn = wx.Button(self, label="&Stop")
@@ -281,6 +287,13 @@ class PlayerPanel(wx.Panel):
         self._media.Pause()
         self._timer.Stop()
         self._play_btn.SetLabel("&Play")
+
+    def _on_play_pressed(self) -> None:
+        """The Play button: hand off to the owner if it asked, else toggle."""
+        if self._on_play_request is not None:
+            self._on_play_request()
+        else:
+            self.toggle()
 
     def toggle(self) -> None:
         if self._media.GetState() == wx.media.MEDIASTATE_PLAYING:

@@ -43,6 +43,44 @@ First public release.
   vetted, so the family offers the same choices everywhere.
   docs/CODE-REVIEW-2026-09.md records what was considered and not added.
 
+### Fixed (accessibility and release hardening)
+
+- **Screen readers can read the lists again.** The helper that gives a control
+  an accessible name was replacing the native accessibility object, which on
+  Windows also answers for the control's children. List rows read as bare
+  index numbers, every tab in the Tag and Chapter Editor announced as "Tag
+  and chapter pages", and checkbox state changes went unspoken. Lists, tabs,
+  radio groups and checkboxes now keep their native accessibility, which
+  knows their rows, titles and states.
+- **The import list announces its checkboxes.** Reading an OPML list used a
+  check list box, which Windows draws itself and screen readers cannot see
+  into. It is a native list with real checkboxes now: rows read, Space
+  announces checked and unchecked, and a running count follows every change.
+  "Tick" became "Check" throughout, which is what the control is called.
+- **The Play button plays.** It called a bare toggle on a player with nothing
+  loaded, which does nothing and says nothing; loading only happened via
+  Ctrl+P. The button now loads the highlighted row first, exactly as the
+  menu does.
+- **Local files are no longer described as episodes.** In local mode the list
+  is labelled Files, prompts say file, and the episode limit -- which caps
+  what a feed fetches -- is greyed out.
+- **The episode list has a context menu**, on right-click, Shift+F10 or the
+  Applications key: play, jump to a chapter, read the transcript, edit tags
+  and chapters, open the containing folder, and remove from the list. Entries
+  the highlighted row cannot use are dimmed rather than hidden, in the menu
+  bar as well, so the menu answers "is there a transcript?" before it is
+  asked.
+- **The installer's checkboxes announce their state.** Inno Setup's wizard
+  draws its task list itself, and it reports every box as unchecked to a
+  screen reader. The desktop icon and launch choices are native Windows
+  checkboxes now.
+- **Releases are reproducible and signed.** The build installs from a lock
+  file pinning every package, direct and transitive, to one version and one
+  SHA-256 -- a swapped or tampered wheel fails the build instead of entering
+  a release quietly. Binaries and the installer are Authenticode-signed
+  through Azure Trusted Signing, and every download is published with its
+  SHA-256.
+
 ### Fixed (September review)
 
 - **No text box can be squeezed into a column of single words.** Every

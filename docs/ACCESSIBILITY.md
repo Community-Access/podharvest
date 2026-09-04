@@ -66,6 +66,9 @@ The rest of this document was originally derived from source review and Windows 
 | Looking is separate from fetching | Show episodes lists what a feed holds and downloads none of it, with its own column headings, because the library headings promise what you have and none of it is on disk yet. The transport is switched off for the same reason, rather than left armed over files that do not exist. |
 | Favourites are honest about what they are not | Bookmarks, not subscriptions. Nothing checks them, downloads from them or notifies you, the window says so in as many words, and removing one says plainly that your harvested files are untouched. |
 | Transcripts can be read in place | Ctrl+Shift+T opens the selected episode's transcript with a Find box that says which occurrence you are on — the useful operation on an hour of speech is find, not scroll, and moving the caret in a read-only box is otherwise silent. |
+| Every row has a menu of what it can do | Right-click, Shift+F10 or the Applications key on the episode list offers play, jump to a chapter, read the transcript, edit tags and chapters, open the containing folder, and — for local files — remove from the list. Entries the highlighted row cannot use are dimmed rather than hidden, in the menu bar as well, so the menu answers "is there a transcript for this?" before you ask it. |
+| The installer announces its own checkboxes | Inno Setup's wizard draws its task list itself and reports every box as unchecked no matter its state. podHarvest's installer builds the desktop-icon and launch choices from native Windows checkboxes instead, so they announce as checked and not checked. The installer is the first thing a new user meets; it is not a good place to start guessing. |
+| Downloads are signed and hashed | The application, everything in its bundle, and the installer carry Authenticode signatures through Azure Trusted Signing, so Windows names the publisher instead of raising a SmartScreen warning — a warning that reads especially badly aloud. Each release also publishes SHA-256 sums. |
 
 ### Known gaps
 
@@ -80,6 +83,10 @@ In practice this means **a run does not announce its own progress or completion*
 - Progress percentages are written into the log as text, so they are readable on demand even though they are not spoken automatically.
 
 Adding real spoken announcements would require a screen-reader speech bridge (`accessible_output2`, `cytolk`, or the NVDA controller client). That is tracked as an open enhancement, not implemented.
+
+**A note on accessible names, since it caused real bugs.** `set_accessible_name` attaches a `wx.Accessible` to a control, and on Windows that object also answers for the control's *children*. Applied to a list, a notebook or a radio group, it therefore overrode what the native control knew: rows announced as bare index numbers, every notebook tab took the notebook's own name, and checkbox state changes went unspoken. Those controls now keep their native accessibility and are named the ordinary way — their own label, or the `wx.StaticText` created immediately before them. The helper is for controls that genuinely have no label to borrow. Anything list-like, tabbed, grouped or checkable should be left to the platform, which knows more about it than we do.
+
+For the same reason the OPML import list is a `wx.ListCtrl` with `EnableCheckBoxes`, not a `wx.CheckListBox`: the check list box is owner-drawn on Windows and exposes neither its rows nor its check states.
 
 Also outstanding:
 

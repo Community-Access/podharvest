@@ -227,11 +227,11 @@ class TestTheWindow:
         assert "EXAMPLE_NAME" in source
         assert opml.EXAMPLE_URL.startswith("https://")
 
-    def test_ticking_the_new_ones_skips_what_is_already_kept(self):
+    def test_checking_the_new_ones_skips_what_is_already_kept(self):
         pytest.importorskip("wx")
         from podharvest.discover import OpmlImportDialog
 
-        source = inspect.getsource(OpmlImportDialog.on_tick_new)
+        source = inspect.getsource(OpmlImportDialog.on_check_new)
         assert "favorites_mod.contains" in source
 
     def test_adding_saves_bookmarks_rather_than_subscribing(self):

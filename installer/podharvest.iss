@@ -79,8 +79,14 @@ PrivilegesRequired=admin
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; There is no [Tasks] section, and the launch-after-install entry is not in
+; [Run], on purpose. Both would put their checkboxes in the wizard's
+; TNewCheckListBox, a custom-drawn control that does not expose checked
+; state to screen readers -- every box reads as "not checked" no matter
+; what it is. The [Code] section below builds the same two choices out of
+; native Windows checkboxes instead, which announce their state properly.
+; This matters more than usual here: podharvest's primary audience is
+; screen reader users, and the installer is the first thing they meet.
 
 [Files]
 ; Everything PyInstaller produced in dist\podharvest, except the portable
@@ -104,10 +110,71 @@ Name: "{group}\Getting started"; Filename: "{app}\docs\GETTING_STARTED.md"
 Name: "{group}\Technical reference"; Filename: "{app}\docs\REFERENCE.md"
 Name: "{group}\Accessibility statement"; Filename: "{app}\docs\ACCESSIBILITY.md"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Check: WantsDesktopIcon
 
-[Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+[Code]
+var
+  DesktopIconCheck: TNewCheckBox;
+  LaunchCheck: TNewCheckBox;
+
+{ Native checkboxes instead of the wizard's check list box: TNewCheckBox is
+  a real Windows BUTTON control, so a screen reader hears "checked" and
+  "not checked" as it changes. The check list box the [Tasks] and [Run]
+  postinstall entries would use is custom-drawn and always reads as
+  unchecked. }
+
+procedure InitializeWizard;
+var
+  Page: TWizardPage;
+begin
+  { The same page the single desktopicon task used to produce, rebuilt with
+    an announcing control. Unchecked by default, as the task was. }
+  Page := CreateCustomPage(wpSelectDir, 'Select Additional Tasks',
+    'Which additional tasks should be performed?');
+  DesktopIconCheck := TNewCheckBox.Create(Page);
+  DesktopIconCheck.Parent := Page.Surface;
+  DesktopIconCheck.Left := 0;
+  DesktopIconCheck.Top := ScaleY(8);
+  DesktopIconCheck.Width := Page.SurfaceWidth;
+  DesktopIconCheck.Caption := 'Create a &desktop icon';
+  DesktopIconCheck.Checked := False;
+end;
+
+function WantsDesktopIcon: Boolean;
+begin
+  Result := (DesktopIconCheck <> nil) and DesktopIconCheck.Checked;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  { Built when the page is reached rather than up front, because the
+    finished page's labels are only laid out by then. Checked by default,
+    matching the postinstall run entry this replaces. }
+  if (CurPageID = wpFinished) and (LaunchCheck = nil) then
+  begin
+    LaunchCheck := TNewCheckBox.Create(WizardForm);
+    LaunchCheck.Parent := WizardForm.FinishedPage;
+    LaunchCheck.Left := WizardForm.FinishedLabel.Left;
+    LaunchCheck.Top := WizardForm.FinishedLabel.Top +
+      WizardForm.FinishedLabel.Height + ScaleY(16);
+    LaunchCheck.Width := WizardForm.FinishedLabel.Width;
+    LaunchCheck.Caption := '&Launch {#MyAppName}';
+    LaunchCheck.Checked := True;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+  { The Finish button arrives here as wpFinished. nowait, like the run
+    entry it replaces: the installer should close, not babysit the app. }
+  if (CurPageID = wpFinished) and (LaunchCheck <> nil) and
+     LaunchCheck.Checked then
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), 'gui', '',
+      SW_SHOWNORMAL, ewNoWait, ResultCode);
+end;
 
 [UninstallDelete]
 ; Never delete the user's models/cache/config on uninstall - that lives in

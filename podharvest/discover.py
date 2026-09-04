@@ -5,8 +5,8 @@ its episodes" without leaving podHarvest or hunting for a feed address.
 
 * `SearchDialog` -- search Apple's directory, see what came back, take a feed.
 * `FavoritesDialog` -- the shows you marked, to come back to.
-* `OpmlImportDialog` -- read a list of shows out of an OPML file and tick the
-  ones worth keeping. Importing adds bookmarks; it does not subscribe.
+* `OpmlImportDialog` -- read a list of shows out of an OPML file and check
+  off the ones worth keeping. Importing adds bookmarks; it does not subscribe.
 * Browsing itself lives on the main window: it reads a feed and lists the
   episodes without downloading anything.
 
@@ -448,12 +448,17 @@ class FavoritesDialog(wx.Dialog):
 
 
 class OpmlImportDialog(wx.Dialog):
-    """Read a list of podcasts, tick the ones worth keeping.
+    """Read a list of podcasts, check off the ones worth keeping.
 
     A checklist rather than an all-or-nothing import, because a network OPML
-    is forty shows and almost nobody wants all forty. Ticking is the whole
-    interaction: everything ticked goes to favourites, and one highlighted
+    is forty shows and almost nobody wants all forty. Checking is the whole
+    interaction: everything checked goes to favourites, and one highlighted
     show can be taken straight to the main window instead.
+
+    The list is a `wx.ListCtrl` with native checkboxes, not a
+    `wx.CheckListBox`: the check-list control is owner-drawn on Windows, and
+    a screen reader can neither read its rows nor hear a box being checked.
+    The native list view announces both.
 
     Importing here adds bookmarks. It does not subscribe to anything, check
     anything, or download anything.
@@ -522,15 +527,24 @@ class OpmlImportDialog(wx.Dialog):
         # -- what is in it ------------------------------------------------
         root.Add(wx.StaticText(self, label="&Shows in this list:"), 0,
                  wx.LEFT | wx.RIGHT, 10)
-        self.list = wx.CheckListBox(self, choices=[])
+        self.list = wx.ListCtrl(
+            self,
+            style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER | wx.BORDER_SUNKEN)
+        self.list.EnableCheckBoxes(True)
+        self.list.AppendColumn("Show", width=640)
         self.list.SetToolTip(
-            "Every show in the list. Space ticks the one you are on; Enter "
-            "takes it straight to the main window instead. Tick the ones you "
-            "want and press Add ticked to favourites."
+            "Every show in the list. Space checks or unchecks the one you "
+            "are on; Enter takes it straight to the main window instead. "
+            "Check the ones you want and press Add checked to favourites."
         )
         set_accessible_name(self.list, "Shows in this list")
-        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda _e: self.on_use())
-        self.list.Bind(wx.EVT_LISTBOX, lambda _e: self._on_selected())
+        self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, lambda _e: self.on_use())
+        self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, lambda _e: self._on_selected())
+        self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, lambda _e: self._on_selected())
+        # The running count is the only feedback a check gives beyond the
+        # row's own announcement, so it follows every change.
+        self.list.Bind(wx.EVT_LIST_ITEM_CHECKED, lambda _e: self._say_checked())
+        self.list.Bind(wx.EVT_LIST_ITEM_UNCHECKED, lambda _e: self._say_checked())
         root.Add(self.list, 1, wx.EXPAND | wx.ALL, 10)
 
         self.detail = wx.TextCtrl(
@@ -542,30 +556,30 @@ class OpmlImportDialog(wx.Dialog):
         size_for_text(self.detail, lines=4, chars=60)
         root.Add(self.detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
-        # -- ticking ------------------------------------------------------
-        tick_row = wx.BoxSizer(wx.HORIZONTAL)
+        # -- checking -----------------------------------------------------
+        check_row = wx.BoxSizer(wx.HORIZONTAL)
         for label, handler, tip in (
-            ("Tick &all", self.on_tick_all,
-             "Ticks every show in the list."),
-            ("Tick &none", self.on_tick_none,
-             "Unticks everything, to start again."),
-            ("Tick the &new ones", self.on_tick_new,
-             "Ticks only the shows that are not already in your favourites, "
+            ("Check &all", self.on_check_all,
+             "Checks every show in the list."),
+            ("Check &none", self.on_check_none,
+             "Unchecks everything, to start again."),
+            ("Check the &new ones", self.on_check_new,
+             "Checks only the shows that are not already in your favourites, "
              "which is what you usually want when re-reading a list you have "
              "imported before."),
         ):
             button = wx.Button(self, label=label)
             button.SetToolTip(tip)
             button.Bind(wx.EVT_BUTTON, lambda _e, h=handler: h())
-            tick_row.Add(button, 0, wx.RIGHT, 6)
-        root.Add(tick_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            check_row.Add(button, 0, wx.RIGHT, 6)
+        root.Add(check_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # -- actions ------------------------------------------------------
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.add_btn = wx.Button(self, label="Add ticked to &favourites")
+        self.add_btn = wx.Button(self, label="Add checked to &favourites")
         self.add_btn.SetToolTip(
-            "Saves every ticked show as a favourite. Bookmarks only: nothing "
-            "is checked for new episodes and nothing is downloaded."
+            "Saves every checked show as a favourite. Bookmarks only: "
+            "nothing is polled for new episodes and nothing is downloaded."
         )
         self.add_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_add())
         self.add_btn.Enable(False)
@@ -642,7 +656,9 @@ class OpmlImportDialog(wx.Dialog):
             return
         self.read_btn.Enable()
         self._shows = list(shows)
-        self.list.Set([self._label(s) for s in self._shows])
+        self.list.DeleteAllItems()
+        for show in self._shows:
+            self.list.InsertItem(self.list.GetItemCount(), self._label(show))
         self.add_btn.Enable(bool(self._shows))
         if error:
             self.status.SetLabel(error)
@@ -652,45 +668,55 @@ class OpmlImportDialog(wx.Dialog):
                 "something else, or its entries may have no feed addresses.")
         else:
             self.status.SetLabel(
-                f"{len(self._shows)} show(s). Space ticks the one you are on; "
-                "Tick the new ones skips what you already have.")
-            self.on_tick_new()
-            self.list.SetSelection(0)
+                f"{len(self._shows)} show(s). Space checks the one you are "
+                "on; Check the new ones skips what you already have.")
+            self.on_check_new()
+            self.list.Select(0)
+            self.list.Focus(0)
             self.list.SetFocus()
         self._on_selected()
 
     def _label(self, show) -> str:
         return f"{show.title} - {show.summary()}" if show.summary() else show.title
 
-    # -- ticking ---------------------------------------------------------
+    # -- checking ---------------------------------------------------------
 
-    def on_tick_all(self) -> None:
-        self.list.SetCheckedItems(range(len(self._shows)))
-        self._say_ticked()
+    def _checked_indexes(self) -> list[int]:
+        return [index for index in range(self.list.GetItemCount())
+                if self.list.IsItemChecked(index)]
 
-    def on_tick_none(self) -> None:
-        self.list.SetCheckedItems([])
-        self._say_ticked()
+    def _set_checked(self, wanted) -> None:
+        keep = set(wanted)
+        for index in range(self.list.GetItemCount()):
+            self.list.CheckItem(index, index in keep)
 
-    def on_tick_new(self) -> None:
-        """Tick only what is not already a favourite."""
+    def on_check_all(self) -> None:
+        self._set_checked(range(len(self._shows)))
+        self._say_checked()
+
+    def on_check_none(self) -> None:
+        self._set_checked([])
+        self._say_checked()
+
+    def on_check_new(self) -> None:
+        """Check only what is not already a favourite."""
         from podharvest import favorites as favorites_mod
 
         existing = favorites_mod.load(self.app_space)
         wanted = [index for index, show in enumerate(self._shows)
                   if not favorites_mod.contains(existing, show.feed_url)]
-        self.list.SetCheckedItems(wanted)
+        self._set_checked(wanted)
         already = len(self._shows) - len(wanted)
         note = f" {already} already in your favourites." if already else ""
-        self.status.SetLabel(f"{len(wanted)} ticked.{note}")
+        self.status.SetLabel(f"{len(wanted)} checked.{note}")
 
-    def _say_ticked(self) -> None:
-        self.status.SetLabel(f"{len(self.list.GetCheckedItems())} ticked.")
+    def _say_checked(self) -> None:
+        self.status.SetLabel(f"{len(self._checked_indexes())} checked.")
 
     # -- acting ----------------------------------------------------------
 
     def selected(self):
-        index = self.list.GetSelection()
+        index = self.list.GetFirstSelected()
         return self._shows[index] if 0 <= index < len(self._shows) else None
 
     def _on_selected(self) -> None:
@@ -711,17 +737,17 @@ class OpmlImportDialog(wx.Dialog):
         self.detail.SetInsertionPoint(0)
 
     def on_add(self) -> None:
-        """Save every ticked show as a favourite."""
+        """Save every checked show as a favourite."""
         from podharvest import favorites as favorites_mod
 
-        ticked = [self._shows[i] for i in self.list.GetCheckedItems()]
-        if not ticked:
-            self.status.SetLabel("Nothing is ticked. Space ticks the show you "
-                                 "are on.")
+        checked = [self._shows[i] for i in self._checked_indexes()]
+        if not checked:
+            self.status.SetLabel("Nothing is checked. Space checks the show "
+                                 "you are on.")
             self.list.SetFocus()
             return
         added = skipped = 0
-        for show in ticked:
+        for show in checked:
             favorite = favorites_mod.Favorite(
                 title=show.title, feed_url=show.feed_url,
                 homepage=show.homepage)

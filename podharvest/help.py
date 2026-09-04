@@ -119,8 +119,8 @@ PURPOSES: dict[str, str] = {
     "Import a list of podcasts": (
         "Reads an OPML file -- the format podcast apps use to hand each other "
         "a list of shows -- and lets you pick which of them to keep. Give a "
-        "web address or choose a file, press Read the list, then tick what "
-        "you want and press Add ticked to favourites. Tick the new ones skips "
+        "web address or choose a file, press Read the list, then check what "
+        "you want and press Add checked to favourites. Check the new ones skips "
         "anything already in your favourites, which is what you usually want "
         "when re-reading a list. Importing adds bookmarks and nothing else: "
         "no subscription, no checking for new episodes, no downloading. Use "
