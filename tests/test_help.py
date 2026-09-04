@@ -57,8 +57,40 @@ class TestCoverage:
 
 class TestWindowPurposes:
     def test_every_window_says_what_it_is_for(self):
-        for title in ("podHarvest", "Settings", "Media tools", "Edit chapter"):
+        for title in ("podHarvest", "Settings", "Media tools", "Edit chapter",
+                      "Find a podcast", "Favourite podcasts", "Transcript",
+                      "Tags and chapters", "About"):
             assert help_mod.purpose_for_title(title) != help_mod.GENERIC_PURPOSE
+
+    def test_every_window_the_program_builds_has_one(self):
+        """The gate that would have caught the two windows that did not.
+
+        A new dialog is easy to add and easy to forget here, and forgetting is
+        invisible: F1 still answers, just with the generic sentence, which
+        reads as though nobody thought about that window. So the titles are
+        read out of the source rather than listed by hand.
+        """
+        import ast
+        from pathlib import Path
+
+        package = Path(help_mod.__file__).parent
+        titles: set[str] = set()
+        for name in ("discover.py", "reader.py", "editor.py", "gui.py"):
+            tree = ast.parse((package / name).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                # super().__init__(parent, title="Find a podcast", ...)
+                if not isinstance(node, ast.Call):
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg == "title" and isinstance(
+                            keyword.value, ast.Constant) and isinstance(
+                            keyword.value.value, str):
+                        titles.add(keyword.value.value)
+        missing = {t for t in titles
+                   if t and help_mod.purpose_for_title(t) == help_mod.GENERIC_PURPOSE}
+        assert not missing, (
+            f"these windows have no authored purpose in help.PURPOSES: "
+            f"{sorted(missing)}")
 
     def test_a_title_carrying_live_data_still_resolves(self):
         """"Tags and chapters - 0042-an-episode.mp3" is still the tag editor."""

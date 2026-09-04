@@ -64,6 +64,13 @@ _RUN_COLUMNS = (
 #: Headings for the local-files list. Same five slots, different questions:
 #: a file you already had is identified by its name and where it sits, not by
 #: which podcast it came from or when it was published.
+#: Headings for a feed being browsed rather than harvested. The list is
+#: showing what a publisher offers, not what you have, so "What you
+#: have" would be a lie in every row.
+_BROWSE_COLUMNS = (
+    ("#", 50), ("Episode", 400), ("Published", 110), ("Length", 90),
+    ("Has", 150),
+)
 _LOCAL_COLUMNS = (
     ("File", 240), ("Title", 300), ("What you have", 180),
     ("Folder", 200), ("Length", 90),
@@ -255,6 +262,8 @@ class SettingsDialog(wx.Dialog):
         outer.Add(sub_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         # -- cloud providers -----------------------------------------------
+        outer.Add(self._build_directory_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         outer.Add(self._build_local_settings(), 0,
                   wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         outer.Add(self._build_playback_settings(), 0,
@@ -279,6 +288,50 @@ class SettingsDialog(wx.Dialog):
         self.SetSizerAndFit(outer)
         self._on_toggle_log(None)
         self._on_toggle_summaries(None)
+
+    def _build_directory_settings(self) -> wx.StaticBoxSizer:
+        """Where podcast searches look, and how much they bring back."""
+        from podharvest import directory as directory_mod
+
+        box = wx.StaticBoxSizer(wx.VERTICAL, self, "Finding podcasts")
+        holder = box.GetStaticBox()
+        grid = wx.FlexGridSizer(2, 2, 8, 8)
+        grid.AddGrowableCol(1)
+
+        # Label before control, so a screen reader pairs the two.
+        grid.Add(wx.StaticText(holder, label="Search &Apple's store for:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.country_choice = wx.Choice(
+            holder,
+            choices=[name for _code, name in directory_mod.STOREFRONTS])
+        self.country_choice.SetToolTip(
+            "Which of Apple's stores podcast searches ask. They carry "
+            "different shows, so a local podcast may only appear in its own "
+            "country's store. The United States store is the largest and is "
+            "the default. Any other two-letter country code Apple recognises "
+            "can be put straight into the settings file."
+        )
+        set_accessible_name(self.country_choice, "Podcast store country")
+        wanted = directory_mod.clean_storefront(self.settings.itunes_country)
+        codes = [code for code, _name in directory_mod.STOREFRONTS]
+        self.country_choice.SetSelection(
+            codes.index(wanted) if wanted in codes else 0)
+        grid.Add(self.country_choice, 0)
+
+        grid.Add(wx.StaticText(holder, label="&Results to fetch:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.search_limit_ctrl = wx.SpinCtrl(
+            holder, min=1, max=directory_mod.MAX_LIMIT,
+            initial=int(self.settings.search_limit))
+        self.search_limit_ctrl.SetToolTip(
+            "How many shows a search asks for, up to "
+            f"{directory_mod.MAX_LIMIT}. More costs nothing extra to fetch "
+            "but makes a longer list to read through."
+        )
+        set_accessible_name(self.search_limit_ctrl, "Results to fetch")
+        grid.Add(self.search_limit_ctrl, 0)
+        box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+        return box
 
     def _build_local_settings(self) -> wx.StaticBoxSizer:
         """How podHarvest treats audio you already have."""
@@ -648,6 +701,12 @@ class SettingsDialog(wx.Dialog):
         settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()
         settings.local_recurse_folders = self.chk_local_recurse.GetValue()
         settings.sound_cues = self.chk_sound_cues.GetValue()
+        from podharvest import directory as directory_mod
+
+        index = self.country_choice.GetSelection()
+        if 0 <= index < len(directory_mod.STOREFRONTS):
+            settings.itunes_country = directory_mod.STOREFRONTS[index][0]
+        settings.search_limit = self.search_limit_ctrl.GetValue()
 
 
 def _rates_text(rates) -> str:
@@ -684,6 +743,13 @@ class MainFrame(wx.Frame):
         self._local_paths: list[Path] = []
         self._local_rows: dict = {}
         self._local_buttons: list = []
+        #: A feed read with Show episodes, by row. Separate from the
+        #: library and the local list because these episodes are not
+        #: on disk at all.
+        self._browsed_rows: dict = {}
+        #: The name the last chosen or browsed feed gives itself, so a
+        #: favourite is saved under something better than its address.
+        self._browsed_title: str = ""
         self._cancel_event = threading.Event()
         self._episode_rows: dict[int, int] = {}
         #: Which episode the transport currently holds open, so pressing
@@ -753,19 +819,33 @@ class MainFrame(wx.Frame):
 
     def _build_menubar(self) -> None:
         """A menu bar is the standard way to explore an unfamiliar app with a
-        screen reader; without one there is no Alt/F10 entry point at all."""
+        screen reader; without one there is no Alt/F10 entry point at all.
+
+        Five menus rather than three, grouped by what you are acting *on*
+        rather than by what happens to be implemented near what. File is the
+        podcast or the files; Episode is whatever is highlighted; View is
+        where focus goes; Tools is the machine and its models; Help explains.
+        A menu that has become a list of everything is as hard to search by
+        ear as no menu at all.
+        """
         bar = wx.MenuBar()
 
+        # -- File: choosing what to work on, and starting -------------------
         file_menu = wx.Menu()
-        self._menu_start = file_menu.Append(wx.ID_ANY, "&Start harvest\tCtrl+R",
-                                            "Begin harvesting the feed")
-        self._menu_cancel = file_menu.Append(wx.ID_ANY, "&Cancel harvest\tEsc",
-                                             "Stop the harvest in progress")
-        self._menu_cancel.Enable(False)
+        self._menu_find = file_menu.Append(
+            wx.ID_ANY, "&Find a podcast...\tCtrl+K",
+            "Search Apple's podcast directory by name")
+        self._menu_favorites = file_menu.Append(
+            wx.ID_ANY, "Fa&vourite podcasts...\tCtrl+Shift+K",
+            "The shows you have marked, to come back to")
+        self._menu_add_favorite = file_menu.Append(
+            wx.ID_ANY, "Add this feed to favou&rites",
+            "Remember the feed address currently in the box")
         file_menu.AppendSeparator()
-        # The way in for somebody who opened podHarvest to work on files they
-        # already have. Both switch the window to Local files themselves, so
-        # this is a complete route in without touching the radio first.
+        self._menu_browse = file_menu.Append(
+            wx.ID_ANY, "Show &episodes in this feed\tCtrl+Shift+E",
+            "Read the feed and list its episodes, downloading nothing")
+        file_menu.AppendSeparator()
         self._menu_add_files = file_menu.Append(
             wx.ID_ANY, "&Add local files...\tCtrl+O",
             "Choose audio already on this machine to transcribe, tag or edit")
@@ -773,85 +853,205 @@ class MainFrame(wx.Frame):
             wx.ID_ANY, "Add a local f&older...\tCtrl+Shift+F",
             "Take every audio file in a folder")
         file_menu.AppendSeparator()
-        self._menu_settings = file_menu.Append(wx.ID_PREFERENCES, "Se&ttings...\tCtrl+,",
-                                               "Log file location, summaries and subtitle files")
-        self._menu_open_out = file_menu.Append(wx.ID_ANY, "Open &output folder\tCtrl+Shift+O",
-                                               "Open the folder holding the results")
-        self._menu_open_log = file_menu.Append(wx.ID_ANY, "Open log &folder",
-                                               "Open the folder holding the saved log file")
+        self._menu_start = file_menu.Append(
+            wx.ID_ANY, "&Start\tCtrl+R", "Begin harvesting, or transcribing")
+        self._menu_cancel = file_menu.Append(
+            wx.ID_ANY, "&Cancel\tEsc", "Stop the run in progress")
+        self._menu_cancel.Enable(False)
+        file_menu.AppendSeparator()
+        self._menu_open_out = file_menu.Append(
+            wx.ID_ANY, "Open out&put folder\tCtrl+Shift+O",
+            "Open the folder holding the results")
+        self._menu_open_log = file_menu.Append(
+            wx.ID_ANY, "Open &log folder",
+            "Open the folder holding the saved log file")
+        file_menu.AppendSeparator()
+        self._menu_settings = file_menu.Append(
+            wx.ID_PREFERENCES, "Se&ttings...\tCtrl+,",
+            "Everything podHarvest remembers between runs")
         file_menu.AppendSeparator()
         file_menu.Append(wx.ID_EXIT, "E&xit\tAlt+F4", f"Close {DISPLAY_NAME}")
         bar.Append(file_menu, "&File")
 
-        view_menu = wx.Menu()
-        self._menu_focus_episodes = view_menu.Append(wx.ID_ANY, "Go to &episode list\tCtrl+E",
-                                                     "Move focus to the list of episodes")
-        self._menu_focus_log = view_menu.Append(wx.ID_ANY, "Go to activity &log\tCtrl+L",
-                                                "Move focus to the activity log")
-        self._menu_redetect = view_menu.Append(wx.ID_ANY, "&Re-detect hardware\tCtrl+D",
-                                               "Probe the hardware again")
-        self._menu_refresh_library = view_menu.Append(
-            wx.ID_ANY, "Re&fresh the library	Ctrl+Shift+R",
-            "Read the output folder again and list what is in it")
-        self._menu_transcript = view_menu.Append(
-            wx.ID_ANY, "Read the &transcript...	Ctrl+Shift+T",
-            "Open the selected episode's transcript, with a search box")
-        view_menu.AppendSeparator()
-        self._menu_play = view_menu.Append(
-            wx.ID_ANY, "&Play or pause the selected episode	Ctrl+P",
+        # -- Episode: whatever is highlighted in the list -------------------
+        episode_menu = wx.Menu()
+        self._menu_play = episode_menu.Append(
+            wx.ID_ANY, "&Play or pause\tCtrl+P",
             "Play the highlighted episode, or pause it if it is playing")
-        self._menu_rewind = view_menu.Append(
-            wx.ID_ANY, "Rewind ten seconds	Ctrl+B",
-            "Jump back ten seconds")
-        self._menu_forward = view_menu.Append(
-            wx.ID_ANY, "Forward ten seconds	Ctrl+F",
-            "Jump on ten seconds")
+        self._menu_rewind = episode_menu.Append(
+            wx.ID_ANY, "&Rewind\tCtrl+B",
+            "Jump back by the amount set in Settings")
+        self._menu_forward = episode_menu.Append(
+            wx.ID_ANY, "&Forward\tCtrl+F",
+            "Jump on by the amount set in Settings")
+        episode_menu.AppendSeparator()
+        self._menu_transcript = episode_menu.Append(
+            wx.ID_ANY, "Read the &transcript...\tCtrl+Shift+T",
+            "Open the highlighted episode's transcript, with a search box")
+        self._menu_edit_tags = episode_menu.Append(
+            wx.ID_ANY, "Edit tags and &chapters...\tCtrl+T",
+            "Open the highlighted episode's audio in the Tag and Chapter Editor")
+        episode_menu.AppendSeparator()
+        self._menu_reveal = episode_menu.Append(
+            wx.ID_ANY, "Open the folder it is &in",
+            "Open the folder holding the highlighted episode's audio")
+        bar.Append(episode_menu, "&Episode")
+
+        # -- View: where focus goes, and what the list is showing -----------
+        view_menu = wx.Menu()
+        self._menu_focus_episodes = view_menu.Append(
+            wx.ID_ANY, "Go to &episode list\tCtrl+E",
+            "Move focus to the list of episodes")
+        self._menu_focus_log = view_menu.Append(
+            wx.ID_ANY, "Go to activity &log\tCtrl+L",
+            "Move focus to the activity log")
+        view_menu.AppendSeparator()
+        self._menu_refresh_library = view_menu.Append(
+            wx.ID_ANY, "Re&fresh the library\tCtrl+Shift+R",
+            "Read the output folder again and list what is in it")
         view_menu.AppendSeparator()
         self._menu_tray = view_menu.Append(
-            wx.ID_ANY, "&Minimise to the notification area	Ctrl+Shift+M",
+            wx.ID_ANY, "&Minimise to the notification area\tCtrl+Shift+M",
             "Hide the window; the run carries on and the tray icon brings it back")
-        self._menu_edit_tags = view_menu.Append(
-            wx.ID_ANY, "Edit tags and chap&ters...	Ctrl+T",
-            "Open an episode's audio in the Tag and Chapter Editor")
         bar.Append(view_menu, "&View")
 
+        # -- Tools: this machine, and the models on it ----------------------
+        tools_menu = wx.Menu()
+        self._menu_download_model = tools_menu.Append(
+            wx.ID_ANY, "&Download the selected model",
+            "Fetch everything the chosen model needs, before a run needs it")
+        self._menu_check_install = tools_menu.Append(
+            wx.ID_ANY, "&Check what is installed...",
+            "Which engines are downloaded, and whether they actually load")
+        tools_menu.AppendSeparator()
+        self._menu_redetect = tools_menu.Append(
+            wx.ID_ANY, "&Re-detect hardware\tCtrl+D",
+            "Probe the processor, memory and graphics again")
+        self._menu_media_tools = tools_menu.Append(
+            wx.ID_ANY, "&Media tools...",
+            "Whether FFmpeg is installed, and what it is used for")
+        bar.Append(tools_menu, "&Tools")
+
+        # -- Help -----------------------------------------------------------
         help_menu = wx.Menu()
+        self._menu_help_here = help_menu.Append(
+            wx.ID_ANY, "Explain this &window and control\tF1",
+            "What this window is for, and what the control you are on does")
+        help_menu.AppendSeparator()
+        self._menu_docs = help_menu.Append(
+            wx.ID_ANY, "Open the &documentation",
+            "The guides that ship with podHarvest, in your file browser")
         self._menu_report_bug = help_menu.Append(
             wx.ID_ANY, "&Report a bug...",
             "Build a report you can read before anything is sent")
-        self._menu_media_tools = help_menu.Append(
-            wx.ID_ANY, "&Media tools...",
-            "Whether FFmpeg is installed, and what it is used for")
-        help_menu.Append(wx.ID_ABOUT, f"&About {DISPLAY_NAME}", "Version and project information")
+        help_menu.AppendSeparator()
+        help_menu.Append(wx.ID_ABOUT, f"&About {DISPLAY_NAME}",
+                         "Version and project information")
         bar.Append(help_menu, "&Help")
 
         self.SetMenuBar(bar)
+
         self.Bind(wx.EVT_MENU, self._on_start, self._menu_start)
         self.Bind(wx.EVT_MENU, self._on_cancel, self._menu_cancel)
         self.Bind(wx.EVT_MENU, self._on_settings, self._menu_settings)
+        self.Bind(wx.EVT_MENU, self._on_find_podcast, self._menu_find)
+        self.Bind(wx.EVT_MENU, self._on_favorites, self._menu_favorites)
+        self.Bind(wx.EVT_MENU, self._on_add_favorite, self._menu_add_favorite)
+        self.Bind(wx.EVT_MENU, self._on_browse_feed, self._menu_browse)
         self.Bind(wx.EVT_MENU, self._on_add_files, self._menu_add_files)
         self.Bind(wx.EVT_MENU, self._on_add_folder, self._menu_add_folder)
         self.Bind(wx.EVT_MENU, lambda evt: self._open_folder(
-            self._run_output_dir or self.output_ctrl.GetValue().strip()), self._menu_open_out)
+            self._run_output_dir or self.output_ctrl.GetValue().strip()),
+            self._menu_open_out)
         self.Bind(wx.EVT_MENU, lambda evt: self._open_folder(
-            config_mod.resolved_log_dir(self.app_space, self.settings)), self._menu_open_log)
+            config_mod.resolved_log_dir(self.app_space, self.settings)),
+            self._menu_open_log)
         self.Bind(wx.EVT_MENU, lambda evt: self.Close(), id=wx.ID_EXIT)
-        self.Bind(wx.EVT_MENU, self._on_focus_log, self._menu_focus_log)
-        self.Bind(wx.EVT_MENU, lambda evt: self.episode_list.SetFocus(),
-                  self._menu_focus_episodes)
-        self.Bind(wx.EVT_MENU, lambda evt: self.refresh_hardware(force=True), self._menu_redetect)
-        self.Bind(wx.EVT_MENU, lambda _e: self.refresh_library(),
-                  self._menu_refresh_library)
-        self.Bind(wx.EVT_MENU, lambda _e: self._on_read_transcript(),
-                  self._menu_transcript)
+
         self.Bind(wx.EVT_MENU, lambda _e: self._on_play_selected(), self._menu_play)
         self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_back(), self._menu_rewind)
         self.Bind(wx.EVT_MENU, lambda _e: self.player.skip_forward(), self._menu_forward)
-        self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
+        self.Bind(wx.EVT_MENU, lambda _e: self._on_read_transcript(),
+                  self._menu_transcript)
         self.Bind(wx.EVT_MENU, self._on_edit_tags, self._menu_edit_tags)
-        self.Bind(wx.EVT_MENU, self._on_report_bug, self._menu_report_bug)
+        self.Bind(wx.EVT_MENU, self._on_reveal_episode, self._menu_reveal)
+
+        self.Bind(wx.EVT_MENU, self._on_focus_log, self._menu_focus_log)
+        self.Bind(wx.EVT_MENU, lambda evt: self.episode_list.SetFocus(),
+                  self._menu_focus_episodes)
+        self.Bind(wx.EVT_MENU, lambda _e: self.refresh_library(),
+                  self._menu_refresh_library)
+        self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
+
+        self.Bind(wx.EVT_MENU, self._on_download_model, self._menu_download_model)
+        self.Bind(wx.EVT_MENU, self._on_check_install, self._menu_check_install)
+        self.Bind(wx.EVT_MENU, lambda evt: self.refresh_hardware(force=True),
+                  self._menu_redetect)
         self.Bind(wx.EVT_MENU, self._on_media_tools, self._menu_media_tools)
+
+        self.Bind(wx.EVT_MENU, self._on_help_here, self._menu_help_here)
+        self.Bind(wx.EVT_MENU, self._on_open_docs, self._menu_docs)
+        self.Bind(wx.EVT_MENU, self._on_report_bug, self._menu_report_bug)
         self.Bind(wx.EVT_MENU, self._on_about, id=wx.ID_ABOUT)
+
+    # -- menu actions that had nowhere else to live -----------------------
+
+    def _on_reveal_episode(self, _evt=None) -> None:
+        """Open the folder holding the highlighted episode's audio."""
+        path = self._selected_episode_audio()
+        if path is None:
+            LOG.info("Highlight an episode that has been downloaded first.")
+            return
+        self._open_folder(str(Path(path).parent))
+
+    def _on_check_install(self, _evt=None) -> None:
+        """Say which engines are downloaded and whether they actually load.
+
+        The same two questions `podharvest doctor` answers, because "it is on
+        disk" and "it will run" are different and the gap between them is
+        where the awkward failures live.
+        """
+        from podharvest import acquire
+
+        lines: list[str] = []
+        broken = 0
+        for engine in sorted(acquire.ENGINE_PACKAGES):
+            reports = acquire.check_engine(self.app_space, engine)
+            if not reports:
+                continue
+            lines.append(engine)
+            for report in reports:
+                lines.append(f"    {report.sentence()}")
+                if not report.ok and report.installed:
+                    broken += 1
+        tail = ("\n\nSomething is downloaded but will not load. That is a bug: "
+                "Help then Report a bug builds a report to send."
+                if broken else
+                "\n\nAnything not downloaded is fetched the first time you use "
+                "it, or by Tools then Download the selected model.")
+        wx.MessageBox("\n".join(lines) + tail, "What is installed",
+                      wx.OK | wx.ICON_INFORMATION, self)
+
+    def _on_help_here(self, _evt=None) -> None:
+        """Answer F1 from the menu, for anyone who never found the key."""
+        help_mod.show_help(self.FindFocus() or self)
+
+    def _on_open_docs(self, _evt=None) -> None:
+        """Open the shipped documentation in the file browser.
+
+        Next to the executable in a packaged copy, and in the source tree
+        otherwise; whichever exists is opened, and if neither does the log
+        says where to read it online rather than opening nothing.
+        """
+        from podharvest import HOMEPAGE
+
+        here = Path(__file__).resolve().parent
+        for candidate in (here.parent / "docs", here.parent.parent / "docs"):
+            if candidate.is_dir():
+                self._open_folder(str(candidate))
+                return
+        LOG.info("The documentation did not ship with this copy. It is at %s",
+                 HOMEPAGE)
 
     def _build_accelerators(self) -> None:
         """Frame-level shortcuts.
@@ -1110,9 +1310,16 @@ class MainFrame(wx.Frame):
             f"Support: {SUPPORT_EMAIL}\n\n"
             "When writing in, the activity log (Ctrl+L) is the single most "
             "useful thing to include: it says in plain words what happened.\n\n"
+            "The menu bar (Alt or F10) groups everything by what it acts on: "
+            "File chooses the podcast or the files, Episode acts on whichever "
+            "one is highlighted, View moves focus, and Tools looks after the "
+            "models and this machine.\n\n"
             "Keyboard shortcuts:\n"
-            "  Ctrl+R        Start harvest\n"
-            "  Esc           Cancel harvest\n"
+            "  Ctrl+R        Start\n"
+            "  Esc           Cancel\n"
+            "  Ctrl+K        Find a podcast\n"
+            "  Ctrl+Shift+K  Favourite podcasts\n"
+            "  Ctrl+Shift+E  Show the episodes in this feed\n"
             "  Ctrl+O        Add local files\n"
             "  Ctrl+Shift+F  Add a local folder\n"
             "  Ctrl+E        Go to episode list\n"
@@ -1635,9 +1842,16 @@ class MainFrame(wx.Frame):
                                  "page usually works too - its feed is discovered "
                                  "automatically.")
         self.url_ctrl.SetHint("https://example.com/feed")
+        find_btn = wx.Button(holder, label="&Find...")
+        find_btn.SetToolTip(
+            "Search Apple's podcast directory by name, so you do not "
+            "have to hunt for a feed address. Ctrl+K opens it from "
+            "anywhere."
+        )
+        find_btn.Bind(wx.EVT_BUTTON, self._on_find_podcast)
         grid.Add(url_label, 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.url_ctrl, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(holder, label=""))
+        grid.Add(find_btn, 0)
 
         # Label before control, so a screen reader pairs the two.
         match_label = wx.StaticText(holder, label="Only episodes &matching:")
@@ -1656,7 +1870,215 @@ class MainFrame(wx.Frame):
         grid.Add(wx.StaticText(holder, label=""))
 
         box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.browse_btn = wx.Button(holder, label="Show &episodes")
+        self.browse_btn.SetToolTip(
+            "Reads the feed and lists its episodes below, without "
+            "downloading anything. The way to see what a show has "
+            "before deciding to harvest it."
+        )
+        self.browse_btn.Bind(wx.EVT_BUTTON, self._on_browse_feed)
+        row.Add(self.browse_btn, 0, wx.RIGHT, 6)
+
+        fav_btn = wx.Button(holder, label="Fa&vourites...")
+        fav_btn.SetToolTip(
+            "The shows you have marked, to come back to without "
+            "searching again. Bookmarks, not subscriptions: nothing "
+            "is checked or downloaded for you."
+        )
+        fav_btn.Bind(wx.EVT_BUTTON, self._on_favorites)
+        row.Add(fav_btn, 0, wx.RIGHT, 6)
+
+        self.add_fav_btn = wx.Button(holder, label="&Add to favourites")
+        self.add_fav_btn.SetToolTip(
+            "Remembers the feed address above, under the name the "
+            "feed gives itself once it has been read."
+        )
+        self.add_fav_btn.Bind(wx.EVT_BUTTON, self._on_add_favorite)
+        row.Add(self.add_fav_btn, 0)
+        box.Add(row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         return box
+
+    # -- finding a podcast ------------------------------------------------
+
+    def _on_find_podcast(self, _evt=None) -> None:
+        """Search the directory, and take whatever was chosen.
+
+        Switches to the feed source first: choosing a podcast while the window
+        is on Local files would put an address into a box nobody can see.
+        """
+        from podharvest.discover import SearchDialog
+
+        if self.source_mode() != "feed":
+            self.mode_radio.SetSelection(0)
+            self._apply_source_mode()
+        dlg = SearchDialog(self, self.app_space, self.settings)
+        try:
+            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+                return
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        self.url_ctrl.SetValue(chosen.feed_url)
+        self._browsed_title = chosen.title
+        LOG.info("Chose '%s'. Press Show episodes to see what it has, or "
+                 "Start to harvest it.", chosen.display_name)
+        self.browse_btn.SetFocus()
+
+    def _on_favorites(self, _evt=None) -> None:
+        """Open the favourites list and take whatever was chosen."""
+        from podharvest.discover import FavoritesDialog
+
+        dlg = FavoritesDialog(self, self.app_space)
+        try:
+            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+                return
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        if self.source_mode() != "feed":
+            self.mode_radio.SetSelection(0)
+            self._apply_source_mode()
+        self.url_ctrl.SetValue(chosen.feed_url)
+        self._browsed_title = chosen.title
+        LOG.info("Chose '%s' from your favourites.", chosen.display_name)
+        self.browse_btn.SetFocus()
+
+    def _on_add_favorite(self, _evt=None) -> None:
+        """Remember whatever feed address is in the box.
+
+        Saved under the feed's own name when one is known -- from a search
+        result or from having browsed it -- and under the address otherwise,
+        which is at least honest about what it is.
+        """
+        from podharvest import favorites as favorites_mod
+
+        url = self.url_ctrl.GetValue().strip()
+        if not url:
+            LOG.info("Put a feed address in the box first, or use Find to "
+                     "search the directory for one.")
+            self.url_ctrl.SetFocus()
+            return
+        favorite = favorites_mod.Favorite(
+            title=getattr(self, "_browsed_title", "") or url, feed_url=url)
+        _changed, message = favorites_mod.add(self.app_space, favorite)
+        LOG.info("%s", message)
+
+    # -- browsing a feed ---------------------------------------------------
+
+    def _on_browse_feed(self, _evt=None) -> None:
+        """Read the feed and list its episodes, downloading nothing."""
+        url = self.url_ctrl.GetValue().strip()
+        if not url:
+            wx.MessageBox(
+                "Put a feed address in the box first, or use Find to search "
+                "the podcast directory for one.",
+                "Nothing to read", wx.OK | wx.ICON_WARNING, self)
+            self.url_ctrl.SetFocus()
+            return
+        if self._worker is not None and self._worker.is_alive():
+            LOG.info("Something is already running; wait for it to finish.")
+            return
+        self.browse_btn.Disable()
+        self.start_btn.Disable()
+        self._set_progress_text("Reading " + url + "...")
+        LOG.info("Reading the feed at %s. Nothing is downloaded by this.", url)
+        self._worker = threading.Thread(
+            target=self._run_browse_worker, args=(url,), daemon=True)
+        self._worker.start()
+
+    def _run_browse_worker(self, url: str) -> None:
+        from podharvest import directory as directory_mod
+
+        episodes, title, error = [], "", ""
+        try:
+            from podharvest.feed import fetch_and_parse
+            from podharvest.net import HttpClient
+
+            # A pasted Apple show link is a reasonable thing to try, so turn
+            # it into a feed address rather than failing to parse a web page.
+            resolved = directory_mod.feed_url_for(
+                url, country=self.settings.itunes_country,
+                settings=self.settings) or url
+
+            client = HttpClient(retries=max(0, self.settings.download_retries))
+            feed = fetch_and_parse(
+                resolved, client,
+                follow_pagination=self.settings.follow_pagination)
+            title = feed.title
+            episodes = list(feed.episodes)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the log pane
+            error = str(exc)
+            LOG.exception("Could not read the feed: %s", exc)
+        wx.CallAfter(self._show_browsed, episodes, title, error)
+
+    def _show_browsed(self, episodes, title: str, error: str) -> None:
+        """Put a browsed feed's episodes in the list.
+
+        A third thing the list can be, after the library and the local files,
+        so the columns change again: these episodes are not on disk, and a
+        heading promising what you have would be wrong in every row.
+        """
+        from podharvest.harvest import match_episodes
+
+        self._worker = None
+        self.browse_btn.Enable()
+        self.start_btn.Enable()
+        if error:
+            self._set_progress_text("Could not read that feed.")
+            wx.MessageBox(
+                "Could not read that feed.\n\n" + error + "\n\nThe activity "
+                "log has the details.",
+                "Could not read the feed", wx.OK | wx.ICON_ERROR, self)
+            return
+
+        self._browsed_title = title
+        self.episode_list.DeleteAllItems()
+        self._episode_rows = {}
+        self._library_rows = {}
+        self._local_rows = {}
+        self._browsed_rows = {}
+        self._set_columns(_BROWSE_COLUMNS)
+
+        # Shown through the same filter a run would use, so what you see here
+        # is what Start would actually take.
+        shown = match_episodes(episodes, self.settings.episode_match)
+        for number, episode in enumerate(shown, 1):
+            row = self.episode_list.InsertItem(
+                self.episode_list.GetItemCount(), str(number))
+            self.episode_list.SetItem(row, 1, episode.title)
+            when = (episode.published.strftime("%Y-%m-%d")
+                    if episode.published else "")
+            self.episode_list.SetItem(row, 2, when)
+            self.episode_list.SetItem(
+                row, 3, spoken_duration(episode.duration_seconds)
+                if episode.duration_seconds else "")
+            has = []
+            if episode.enclosures:
+                has.append("audio")
+            if episode.transcripts:
+                has.append("a published transcript")
+            self.episode_list.SetItem(
+                row, 4, ", ".join(has) or "nothing to download")
+            self._browsed_rows[row] = episode
+
+        filtered = len(episodes) - len(shown)
+        note = ", " + str(filtered) + " filtered out" if filtered else ""
+        self._set_progress_text(
+            "'" + title + "' has " + str(len(episodes)) + " episode(s)" + note
+            + ". Nothing has been downloaded; press Start when you want to.")
+        LOG.info("'%s': %d episode(s)%s. Nothing downloaded yet.",
+                 title, len(episodes), note)
+        # Nothing here is on disk, so the transport has nothing to open.
+        self.player.Enable(False)
+        self.now_playing.SetLabel(
+            "These episodes are not downloaded yet, so there is nothing to "
+            "play. Press Start to harvest them.")
+        if shown:
+            self.episode_list.Select(0)
+            self.episode_list.Focus(0)
+        self.episode_list.SetFocus()
 
     def _build_output_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         """Where the library lives. Shown for both sources, because both use it.

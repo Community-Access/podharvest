@@ -134,6 +134,12 @@ class Settings:
     # is an intrusion. On, it is the only thing that reports progress without
     # you reading the log, which cannot announce itself -- see cues.py.
     sound_cues: bool = False
+    # Which of Apple's stores the podcast search asks. They carry
+    # different shows, so a local podcast may only appear in its own
+    # country's store. Any two-letter code Apple recognises works, not
+    # only the ones the search window lists.
+    itunes_country: str = "us"
+    search_limit: int = 25
     # Only take episodes whose titles match this. Empty means everything.
     # Applied before the episode limit, so "the 5 most recent about badgers"
     # means that rather than "any badgers among the 5 most recent".
@@ -184,6 +190,18 @@ class Settings:
         settings.playback_rates = clean_rates(settings.playback_rates)
         if settings.source_mode not in {"feed", "local"}:
             settings.source_mode = "feed"
+        from podharvest.directory import (
+            DEFAULT_LIMIT,
+            MAX_LIMIT,
+            clean_storefront,
+        )
+
+        settings.itunes_country = clean_storefront(settings.itunes_country)
+        try:
+            settings.search_limit = max(
+                1, min(int(settings.search_limit), MAX_LIMIT))
+        except (TypeError, ValueError):
+            settings.search_limit = DEFAULT_LIMIT
         return settings
 
 

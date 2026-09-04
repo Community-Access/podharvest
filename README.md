@@ -31,6 +31,37 @@ Give podHarvest a podcast address and it builds you a folder like this, one entr
 Everything is a normal file in a normal folder. Nothing is locked in an app. If you delete
 podHarvest tomorrow, your library stays exactly where it is.
 
+## Finding a podcast
+
+You do not need to know a show's feed address. Press **Ctrl+K**, type the name
+of the show, a presenter, or what it is about, and press Enter. Arrow the
+results, press Enter again, and the feed address is filled in for you.
+
+The search asks Apple's podcast directory — free, no account, the same one the
+podcast apps use. You can narrow what your words are matched against (the
+show's name, the presenter, keywords, the description) and choose which
+country's store to ask, since stores carry different shows: a local programme
+may only appear in its own. The default is the United States store, which is
+the largest; change it in **Settings ▸ Finding podcasts**.
+
+**Show episodes** (**Ctrl+Shift+E**) reads a feed and lists what is in it —
+titles, dates, lengths, and whether each episode has audio or a published
+transcript — *without downloading anything*. It is the way to see what a show
+has before deciding to harvest it. A pasted `podcasts.apple.com` link works
+here too; podHarvest turns it into the feed address for you.
+
+## Favourite podcasts
+
+Found something worth keeping? **Add to favourites**. **Ctrl+Shift+K** brings
+the list back up, and Enter on one puts its feed address in the box.
+
+**These are bookmarks, not subscriptions.** podHarvest never checks them for
+new episodes, never downloads anything on its own, and never notifies you.
+Removing a favourite removes the bookmark only — anything you have already
+harvested from that show stays exactly where it is. The list is a plain JSON
+file in your app space, so it travels with a portable install and can be read
+or edited without podHarvest.
+
 ## Two ways in: a feed, or files you already have
 
 At the top of the window is **Source**, a pair of radio buttons:
@@ -300,6 +331,9 @@ anywhere in the program. You do not have to remember the rest of this table — 
 |---|---|
 | Ctrl+R | Start |
 | Escape | Stop the current run |
+| Ctrl+K | Find a podcast |
+| Ctrl+Shift+K | Favourite podcasts |
+| Ctrl+Shift+E | Show the episodes in this feed |
 | Ctrl+O | Add local files |
 | Ctrl+Shift+F | Add a local folder |
 | Ctrl+E | Jump to the episode list |

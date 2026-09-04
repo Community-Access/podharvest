@@ -54,6 +54,30 @@ First public release.
   still missing -- the engine's packages and the model weights are separate
   downloads and either can be absent on its own -- and a **Download model**
   button fetches them on the spot, using the same calls a run makes.
+- **Find a podcast by name.** Ctrl+K searches Apple's podcast directory --
+  free, no account, the same one the podcast apps use -- so you no longer need
+  a feed address to start. Narrow what your words match against (name,
+  presenter, keywords, description), choose which country's store to ask, and
+  set how many results to fetch. Twenty-five storefronts are offered by name,
+  defaulting to the United States; any other code Apple recognises can go
+  straight into `itunes_country`. A pasted `podcasts.apple.com` link is
+  resolved to its feed address. Adapted from QUILL Cast's client so the two
+  programs find the same shows.
+- **Show episodes** (Ctrl+Shift+E) reads a feed and lists what is in it --
+  titles, dates, lengths, and whether each episode has audio or a published
+  transcript -- without downloading anything. The way to see what a show has
+  before deciding to harvest it.
+- **Favourite podcasts** (Ctrl+Shift+K). Mark a show, come back to it later.
+  Bookmarks rather than subscriptions, and the difference is the design:
+  nothing polls, schedules, notifies or downloads, and a test asserts the
+  module cannot. Removing one removes the bookmark only.
+- **A richer menu bar**, grouped by what each entry acts on rather than by
+  what happened to be implemented near what: File chooses the podcast or the
+  files, Episode acts on whichever is highlighted, View moves focus, Tools
+  looks after the models and this machine, Help explains. Thirty entries
+  across five menus, every one with a status-bar sentence and a mnemonic that
+  does not collide with its neighbours -- all three checked by tests, which is
+  how a collision introduced writing them was caught.
 - **Take only the episodes you want.** **Only episodes matching** takes a word
   or two and keeps the episodes whose titles contain them -- all of them, any
   order, ignoring case. It runs before the episode limit, so "5 episodes

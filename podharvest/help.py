@@ -98,13 +98,42 @@ _DEFAULT_WX_NAMES = frozenset({
 #: carries live data still resolves). One to three sentences: the first says
 #: what the window is for, the rest say what somebody actually does here.
 PURPOSES: dict[str, str] = {
+    "Report a bug": (
+        "Builds a report you can read before any of it goes anywhere. It "
+        "gathers the version, this machine's platform and hardware, whether "
+        "FFmpeg is present, the settings that differ from the defaults, and "
+        "the recent activity log, then removes API keys, your home folder "
+        "name and email addresses. Nothing is sent by this window: you choose "
+        "whether to copy it, save it to a file, or open a pre-filled message."
+    ),
+    "Find a podcast": (
+        "Searches Apple's podcast directory by name, so you do not have to "
+        "hunt for a feed address. Type the show, a presenter or a subject and "
+        "press Enter; the results list can be arrowed through, and Enter on "
+        "one takes its feed back to the main window. Search options narrow "
+        "what your words are matched against and which country's store is "
+        "asked, since stores carry different shows. Add to favourites "
+        "remembers a show without harvesting it; nothing here downloads "
+        "anything or subscribes you to anything."
+    ),
+    "Favourite podcasts": (
+        "The shows you have marked, so you can come back to one without "
+        "searching for it again. Arrow through the list; Enter takes the "
+        "highlighted show's feed back to the main window, and Remove takes it "
+        "off this list without touching anything you have already harvested "
+        "from it. These are bookmarks rather than subscriptions: podHarvest "
+        "never checks them for new episodes or downloads anything on its own."
+    ),
     "podHarvest": (
         "The main window. Paste a podcast's address into Feed URL, choose "
         "whether you want transcripts, and press Start; everything else has a "
         "sensible default. The Episodes list shows each episode and how far "
         "along it is, and Control+L jumps to the activity log, which explains "
         "in ordinary words what is happening and anything that went wrong. "
-        "Control+T opens the selected episode's tags and chapters."
+        "Control+T opens the selected episode's tags and chapters. "
+        "Control+K searches Apple's directory when you know a show's name but "
+        "not its address, and Control+Shift+E lists what a feed holds without "
+        "downloading any of it."
     ),
     "Settings": (
         "Everything podHarvest remembers between runs: where files go and how "

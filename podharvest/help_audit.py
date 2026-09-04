@@ -34,7 +34,9 @@ _ROOT = Path(__file__).resolve().parent
 _SNAPSHOT = _ROOT.parent / "tests" / "help_inventory.json"
 
 #: The modules that build windows. Everything else in the package is wx-free.
-SCAN_FILES: tuple[str, ...] = ("gui.py", "editor.py", "player.py", "reader.py")
+SCAN_FILES: tuple[str, ...] = (
+    "gui.py", "editor.py", "player.py", "reader.py", "discover.py",
+)
 
 #: wx classes a person can focus and therefore press F1 on. `StaticText` is
 #: excluded: it names the control beside it and is not a focus stop.

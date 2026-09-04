@@ -18,6 +18,7 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Command-line usage](#command-line-usage)
+- [Finding a podcast](#finding-a-podcast)
 - [Working on local files](#working-on-local-files)
 - [The desktop GUI](#the-desktop-gui)
   - [Two sources](#two-sources)
@@ -152,6 +153,56 @@ python main.py settings --reset
 ```
 
 Every subcommand accepts `-v`/`-vv` for more detailed logs, `-q` for warnings-only, `--log-file PATH` for a persistent log, and `--app-dir PATH` to point at a different portable app space.
+
+## Finding a podcast
+
+### Searching
+
+`podharvest.directory` is a client for Apple's iTunes Search API — free,
+keyless, and the same directory the podcast apps use. It is adapted from QUILL
+Cast's (`quill/core/podcasts/itunes_search.py`), with the storefront list from
+`quill/core/podcasts/apple_podcasts.py`, so the two programs find the same
+shows. Requests go through podHarvest's own `net.HttpClient` rather than
+urllib, which brings the retries, timeout, rate limit and user agent every
+other request in the program already uses. HTTPS is checked before every call.
+
+| Control | What it sets |
+|---|---|
+| Podcast name | Apple's `term` |
+| Match against | `attribute`: unset (everything), `titleTerm`, `authorTerm`, `keywordsTerm`, `descriptionTerm` |
+| Country | `country`, the storefront code |
+| How many | `limit`, 1-200 |
+| Include explicit shows | Off sends `explicit=No`; on sends nothing, because filtering unasked is its own kind of wrong |
+
+Twenty-five storefronts are offered by name, defaulting to the United States.
+Apple has far more; any two-letter code it recognises can be put straight into
+`itunes_country` in the settings file and will be used, so the menu is a
+convenience rather than a limit.
+
+A `podcasts.apple.com` link is recognised and resolved to a feed address via
+`lookup`, so a shared web link works anywhere a feed address is asked for.
+
+### Browsing without harvesting
+
+**Show episodes** parses the feed and lists its episodes — number, title,
+publication date, length, and whether each has audio or a published transcript
+— and downloads nothing. The list uses its own column headings
+(`_BROWSE_COLUMNS`), because these episodes are not on disk and a heading
+promising what you have would be wrong in every row. The transport is switched
+off for the same reason. The episode filter is applied here too, so what the
+list shows is what Start would actually take.
+
+### Favourites
+
+`podharvest.favorites` keeps a list in `<app-space>/config/favorites.json`,
+written atomically via a temporary file so an interrupted write cannot destroy
+it. Entries are identified by feed address, case-folded and with any trailing
+slash removed — the same show under two names is one favourite.
+
+**It is deliberately not a subscription list.** Nothing in the module imports
+an HTTP client, and a test asserts that: no polling, no scheduling, no
+downloading, no notifications. Removing a favourite removes the bookmark and
+touches nothing on disk.
 
 ## Working on local files
 
@@ -629,6 +680,8 @@ importable".
 | `naming_template` | Per-episode file naming. Placeholders: `{date}` `{slug}` `{title}` `{index}` `{season}` `{number}` `{year}` `{month}` `{day}` |
 | `log_verbosity` | Default `-v` level when none is given on the command line |
 | `source_mode` | Which source the main window opens on: `feed` or `local` |
+| `itunes_country` | Which of Apple's stores podcast searches ask. Any two-letter code Apple recognises; default `us` |
+| `search_limit` | How many results a search asks for, 1-200 |
 | `episode_match` | Only episodes whose titles contain these words (any order, case insensitive). Applied before `episode_limit` |
 | `sound_cues` | Short tones as a run proceeds. Off by default |
 | `local_transcripts_beside_file` | Local-file transcripts next to the audio (default), or in `<output>/Local files` |
