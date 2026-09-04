@@ -522,7 +522,9 @@ class TestTheMenuBar:
     def test_it_is_grouped_rather_than_one_long_list(self, frame):
         bar = frame.GetMenuBar()
         names = [bar.GetMenuLabelText(i) for i in range(bar.GetMenuCount())]
-        assert names == ["File", "Episode", "View", "Tools", "Help"]
+        # View sits next to File: it is the second menu anyone opens, and
+        # burying it behind Episode made it the hardest to find by ear.
+        assert names == ["File", "View", "Episode", "Tools", "Help"]
 
     def test_no_menu_has_grown_into_a_list_of_everything(self, frame):
         """Past about a dozen, a menu stops being searchable by ear."""

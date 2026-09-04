@@ -319,6 +319,30 @@ Type a folder into **Output folder**, or press **Browse** and pick one.
 podHarvest saves a log of every run. Choose where it goes in **Settings**, under
 **Activity log**. Handy if something goes wrong and you want to say what.
 
+## The status bar
+
+Along the bottom is a row you can actually get to. **F6** puts focus in it,
+**Left** and **Right** move between cells, **Home** and **End** jump to the
+ends, **Enter** does the useful thing for whichever cell you are on, and **F6**
+or **Escape** hands focus back where it came from. The context menu key offers
+the same action, plus copying the value.
+
+| Cell | Shows | Enter |
+|---|---|---|
+| Activity | What podHarvest is doing | Jumps to the activity log |
+| Progress | How far through a run | Says the whole sentence |
+| Source | Which source, and what it points at | Jumps to that box |
+| Model | The model, and whether it is downloaded | Downloads it, or jumps to the picker |
+| Library | How much is in the Episodes list | Jumps to the list |
+| Time | The time | Says the full date and time |
+
+**View ▸ Show the status bar** hides it if you would rather not have it.
+
+This replaces wx's own status bar, which could not take focus at all — so
+nothing could read it on demand, and nothing announced when it changed. That is
+why podHarvest used to sit claiming it was detecting hardware long after it had
+finished: nobody could see the message, so nobody noticed it was stale.
+
 ## Using a keyboard
 
 podHarvest is built to be driven entirely from the keyboard, and to work properly with a
@@ -331,6 +355,7 @@ anywhere in the program. You do not have to remember the rest of this table — 
 |---|---|
 | Ctrl+R | Start |
 | Escape | Stop the current run |
+| F6 | Go to the status bar (F6 or Escape comes back) |
 | Ctrl+K | Find a podcast |
 | Ctrl+Shift+K | Favourite podcasts |
 | Ctrl+Shift+E | Show the episodes in this feed |

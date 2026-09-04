@@ -43,6 +43,7 @@ from podharvest import help as help_mod
 from podharvest.a11y import _Named, set_accessible_name, size_for_text  # noqa: F401
 from podharvest.keystore import load_key as keystore_load
 from podharvest.player import PlayerPanel
+from podharvest.status_bar import StatusBar
 from podharvest.util import LOG, spoken_duration
 
 #: How often the playhead is written to disk while playing. The transport
@@ -67,6 +68,10 @@ _RUN_COLUMNS = (
 #: Headings for a feed being browsed rather than harvested. The list is
 #: showing what a publisher offers, not what you have, so "What you
 #: have" would be a lie in every row.
+#: The three sources, in the order the radio offers them. One list so the
+#: control, the setting and every `source_mode()` comparison cannot drift.
+_SOURCE_MODES: tuple[str, ...] = ("find", "feed", "local")
+
 _BROWSE_COLUMNS = (
     ("#", 50), ("Episode", 400), ("Published", 110), ("Length", 90),
     ("Has", 150),
@@ -776,14 +781,19 @@ class MainFrame(wx.Frame):
         self._estimated_audio_seconds = 0.0
 
         self._alive = True
+        #: Repaints the status bar. Every second is enough for a
+        #: clock and a percentage, and cheap enough to ignore.
+        self._status_timer = None
 
         self._build_menubar()
         self._build_ui()
         self._build_accelerators()
         self._apply_settings()
         self._wire_logging()
-        self.CreateStatusBar()
-        self.SetStatusText("Ready.")
+        # Deliberately not CreateStatusBar: wx's own bar cannot take
+        # focus, so nothing can read it on demand and nothing
+        # announces when it changes. See podharvest/status_bar.py.
+        self._activity = ""
         self.Bind(wx.EVT_CLOSE, self._on_close)
         # F1 anywhere answers with what this window is for and what the focused
         # control does. This also installs the help provider, without which
@@ -798,6 +808,10 @@ class MainFrame(wx.Frame):
         # doing last time is the most likely reason you opened this.
         self._apply_source_mode()
         self.refresh_hardware()
+        self._status_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, lambda _e: self._refresh_status_bar(),
+                  self._status_timer)
+        self._status_timer.Start(1000)
 
     # -- thread-safe UI updates -------------------------------------------
 
@@ -873,6 +887,32 @@ class MainFrame(wx.Frame):
         file_menu.Append(wx.ID_EXIT, "E&xit\tAlt+F4", f"Close {DISPLAY_NAME}")
         bar.Append(file_menu, "&File")
 
+        # -- View: where focus goes, and what the list is showing -----------
+        view_menu = wx.Menu()
+        self._menu_focus_episodes = view_menu.Append(
+            wx.ID_ANY, "Go to &episode list\tCtrl+E",
+            "Move focus to the list of episodes")
+        self._menu_focus_log = view_menu.Append(
+            wx.ID_ANY, "Go to activity &log\tCtrl+L",
+            "Move focus to the activity log")
+        view_menu.AppendSeparator()
+        self._menu_refresh_library = view_menu.Append(
+            wx.ID_ANY, "Re&fresh the library\tCtrl+Shift+R",
+            "Read the output folder again and list what is in it")
+        view_menu.AppendSeparator()
+        self._menu_focus_status = view_menu.Append(
+            wx.ID_ANY, "Go to the &status bar\tF6",
+            "Move focus into the status bar; F6 again comes back")
+        self._menu_status_bar = view_menu.AppendCheckItem(
+            wx.ID_ANY, "Sho&w the status bar",
+            "Show or hide the status bar along the bottom")
+        self._menu_status_bar.Check(self.settings.show_status_bar)
+        view_menu.AppendSeparator()
+        self._menu_tray = view_menu.Append(
+            wx.ID_ANY, "&Minimise to the notification area\tCtrl+Shift+M",
+            "Hide the window; the run carries on and the tray icon brings it back")
+        bar.Append(view_menu, "&View")
+
         # -- Episode: whatever is highlighted in the list -------------------
         episode_menu = wx.Menu()
         self._menu_play = episode_menu.Append(
@@ -896,24 +936,6 @@ class MainFrame(wx.Frame):
             wx.ID_ANY, "Open the folder it is &in",
             "Open the folder holding the highlighted episode's audio")
         bar.Append(episode_menu, "&Episode")
-
-        # -- View: where focus goes, and what the list is showing -----------
-        view_menu = wx.Menu()
-        self._menu_focus_episodes = view_menu.Append(
-            wx.ID_ANY, "Go to &episode list\tCtrl+E",
-            "Move focus to the list of episodes")
-        self._menu_focus_log = view_menu.Append(
-            wx.ID_ANY, "Go to activity &log\tCtrl+L",
-            "Move focus to the activity log")
-        view_menu.AppendSeparator()
-        self._menu_refresh_library = view_menu.Append(
-            wx.ID_ANY, "Re&fresh the library\tCtrl+Shift+R",
-            "Read the output folder again and list what is in it")
-        view_menu.AppendSeparator()
-        self._menu_tray = view_menu.Append(
-            wx.ID_ANY, "&Minimise to the notification area\tCtrl+Shift+M",
-            "Hide the window; the run carries on and the tray icon brings it back")
-        bar.Append(view_menu, "&View")
 
         # -- Tools: this machine, and the models on it ----------------------
         tools_menu = wx.Menu()
@@ -981,6 +1003,8 @@ class MainFrame(wx.Frame):
                   self._menu_focus_episodes)
         self.Bind(wx.EVT_MENU, lambda _e: self.refresh_library(),
                   self._menu_refresh_library)
+        self.Bind(wx.EVT_MENU, self._on_status_focus, self._menu_focus_status)
+        self.Bind(wx.EVT_MENU, self._toggle_status_bar, self._menu_status_bar)
         self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
 
         self.Bind(wx.EVT_MENU, self._on_download_model, self._menu_download_model)
@@ -1415,6 +1439,12 @@ class MainFrame(wx.Frame):
         set_accessible_name(self.progress, "Overall progress")
         outer.Add(self.progress, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
+        # The status bar is the last thing in the window, so F6 and
+        # Tab both reach it where a status bar is expected to be.
+        self.status_bar = StatusBar(self, wx)
+        outer.Add(self.status_bar.build(panel), 0, wx.EXPAND | wx.ALL, 4)
+        self.status_bar.set_visible(self.settings.show_status_bar)
+
         panel.SetSizer(outer)
         self._outer = outer
         # Both source boxes are built; only one is ever shown. Doing it here,
@@ -1614,25 +1644,29 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.mode_radio = wx.RadioBox(
             panel, label="Source",
-            choices=["Podcast &feed", "&Local files"],
-            majorDimension=2, style=wx.RA_SPECIFY_COLS)
+            choices=["&Find a podcast", "Podcast f&eed", "&Local files"],
+            majorDimension=3, style=wx.RA_SPECIFY_COLS)
         self.mode_radio.SetToolTip(
-            "Podcast feed harvests a show from the internet. Local files works "
-            "on audio already on this machine -- a folder of recordings, an "
-            "audiobook, anything you have -- transcribing it, summarising it, "
-            "and letting you edit its tags and chapter markers. Everything "
-            "below applies to whichever you pick."
+            "Find a podcast searches Apple's directory by name, for when you "
+            "know the show but not its address. Podcast feed takes an address "
+            "you already have. Local files works on audio already on this "
+            "machine -- a folder of recordings, an audiobook, anything you "
+            "have -- transcribing it, summarising it, and letting you edit "
+            "its tags and chapter markers. Everything below applies to "
+            "whichever you pick."
         )
         set_accessible_name(self.mode_radio, "Source")
         self.mode_radio.SetSelection(
-            1 if self.settings.source_mode == "local" else 0)
+            _SOURCE_MODES.index(self.settings.source_mode)
+            if self.settings.source_mode in _SOURCE_MODES else 1)
         self.mode_radio.Bind(wx.EVT_RADIOBOX, self._on_source_mode)
         row.Add(self.mode_radio, 0, wx.RIGHT, 12)
         return row
 
     def source_mode(self) -> str:
-        """Which source the window is on: ``"feed"`` or ``"local"``."""
-        return "local" if self.mode_radio.GetSelection() == 1 else "feed"
+        """Which source the window is on: find, feed, or local."""
+        index = self.mode_radio.GetSelection()
+        return _SOURCE_MODES[index] if 0 <= index < len(_SOURCE_MODES) else "feed"
 
     def _build_local_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         """Adding and removing the files to work on.
@@ -1788,6 +1822,15 @@ class MainFrame(wx.Frame):
         self.settings.source_mode = self.source_mode()
         config_mod.save(self.app_space, self.settings)
 
+    def uses_a_feed(self) -> bool:
+        """Whether this source ends up harvesting a feed.
+
+        Find and Feed both do -- Find is Feed with a search in front of it --
+        so anything that acts on the feed address asks this rather than
+        comparing against "feed" and quietly excluding Find.
+        """
+        return self.source_mode() in {"find", "feed"}
+
     def _apply_source_mode(self, *, refresh: bool = True) -> None:
         """Swap the window over to whichever source is chosen.
 
@@ -1796,7 +1839,9 @@ class MainFrame(wx.Frame):
         Leaving any one of them behind would have the window describing work
         it is not about to do.
         """
-        local = self.source_mode() == "local"
+        mode = self.source_mode()
+        local = mode == "local"
+        # Find and Feed share the box: Find is Feed with a search in front.
         self._outer.Show(self._feed_box, not local, recursive=True)
         self._outer.Show(self._local_box, local, recursive=True)
         # Downloading is a feed idea; a local file is already here.
@@ -1820,6 +1865,15 @@ class MainFrame(wx.Frame):
                 self.refresh_local_list()
             else:
                 self.refresh_library()
+            # Choosing "Find a podcast" should land you where the finding
+            # happens. Focus rather than opening the search window on its own:
+            # a modal appearing because an arrow key moved is startling, and
+            # arrowing a radio group is how you read what the options are.
+            if mode == "find":
+                self.find_btn.SetFocus()
+                self._set_progress_text(
+                    "Type a podcast's name and press Find Podcast to search "
+                    "Apple's directory.")
         self._outer.Layout()
         self.Layout()
 
@@ -1842,7 +1896,7 @@ class MainFrame(wx.Frame):
                                  "page usually works too - its feed is discovered "
                                  "automatically.")
         self.url_ctrl.SetHint("https://example.com/feed")
-        find_btn = wx.Button(holder, label="&Find...")
+        self.find_btn = find_btn = wx.Button(holder, label="Find &Podcast...")
         find_btn.SetToolTip(
             "Search Apple's podcast directory by name, so you do not "
             "have to hunt for a feed address. Ctrl+K opens it from "
@@ -1910,8 +1964,8 @@ class MainFrame(wx.Frame):
         """
         from podharvest.discover import SearchDialog
 
-        if self.source_mode() != "feed":
-            self.mode_radio.SetSelection(0)
+        if not self.uses_a_feed():
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
             self._apply_source_mode()
         dlg = SearchDialog(self, self.app_space, self.settings)
         try:
@@ -1937,8 +1991,8 @@ class MainFrame(wx.Frame):
             chosen = dlg.chosen
         finally:
             dlg.Destroy()
-        if self.source_mode() != "feed":
-            self.mode_radio.SetSelection(0)
+        if not self.uses_a_feed():
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
             self._apply_source_mode()
         self.url_ctrl.SetValue(chosen.feed_url)
         self._browsed_title = chosen.title
@@ -2738,15 +2792,43 @@ class MainFrame(wx.Frame):
             return
         self.download_btn.Disable()
         self.start_btn.Disable()
+        # The gauge is the run's, and there is no run: a download that shows
+        # nothing for several minutes is indistinguishable from a dead button,
+        # which is exactly how this was reported.
+        self._reset_progress()
+        self._set_columns(_LIBRARY_COLUMNS)
         self.model_ready.SetLabel(f"Downloading {choice.model}...")
+        self._set_progress_text(f"Downloading {choice.model}. This is a "
+                                "one-time cost and can take several minutes.")
         LOG.info("Downloading everything %s needs. This is a one-time cost and "
                  "can take several minutes.", choice.model)
         self._worker = threading.Thread(
             target=self._run_download_worker, args=(choice,), daemon=True)
         self._worker.start()
 
+    def _on_download_progress(self, percent: float, detail: str,
+                              model: str) -> None:
+        """Move the gauge as a model downloads. Called on the UI thread.
+
+        Rewritten only when the whole number changes: the hub reports every
+        few kilobytes, and a status line that rewrites hundreds of times a
+        second is one a screen reader cannot read at all.
+        """
+        whole = int(max(0.0, min(100.0, percent)))
+        if whole == getattr(self, "_download_percent", -1):
+            return
+        self._download_percent = whole
+        self.progress.SetValue(whole)
+        said = f" - {detail}" if detail else ""
+        self._set_progress_text(f"Downloading {model}: {whole}%{said}")
+
     def _run_download_worker(self, choice) -> None:
         from podharvest import acquire
+
+        self._download_percent = -1
+
+        def report(percent: float, detail: str) -> None:
+            self._ui(self._on_download_progress, percent, detail, choice.model)
 
         ok = True
         try:
@@ -2755,7 +2837,8 @@ class MainFrame(wx.Frame):
                 LOG.error("Could not set up the %s engine. The lines above say "
                           "why. Nothing was changed.", choice.engine)
             else:
-                acquire.acquire_asr_model(self.app_space, choice)
+                acquire.acquire_asr_model(
+                    self.app_space, choice, on_progress=report)
         except Exception as exc:  # noqa: BLE001 - surfaced to the log pane
             ok = False
             LOG.exception("The download stopped with an error: %s", exc)
@@ -2765,6 +2848,10 @@ class MainFrame(wx.Frame):
     def _finish_download(self, ok: bool, choice) -> None:
         self._worker = None
         self.start_btn.Enable()
+        self.progress.SetValue(100 if ok else 0)
+        self._set_progress_text(
+            f"{choice.model} is ready." if ok else
+            f"{choice.model} could not be downloaded. The activity log says why.")
         self._refresh_model_ready()
         # Something just became downloaded, which can turn "Already
         # downloaded" from an impossible filter into a useful one.
@@ -2810,7 +2897,7 @@ class MainFrame(wx.Frame):
 
     def _set_progress_text(self, text: str) -> None:
         self.progress_text.SetLabel(text)
-        self.SetStatusText(text)
+        self._refresh_status_bar()
 
     def _on_episode_progress(self, prog) -> None:
         """Fold one EpisodeProgress into the list, the gauge caption and the title.
@@ -2877,7 +2964,8 @@ class MainFrame(wx.Frame):
     def refresh_hardware(self, force: bool = False) -> None:
         self.hw_text.SetLabel("Detecting hardware, please wait...")
         self._refresh_btn.Disable()
-        self.SetStatusText("Detecting hardware...")
+        self._activity = "Checking this machine"
+        self._refresh_status_bar()
 
         def work():
             try:
@@ -2904,7 +2992,8 @@ class MainFrame(wx.Frame):
         self.chk_transcribe.Disable()
         self._on_toggle_transcribe(None)
         self.start_btn.Enable()
-        self.SetStatusText("Hardware detection failed - transcription disabled.")
+        self._activity = "Hardware detection failed"
+        self._refresh_status_bar()
         LOG.error("%s", message)
 
     def _apply_hardware(self, hw) -> None:
@@ -3184,6 +3273,118 @@ class MainFrame(wx.Frame):
         self._cancel_event.set()
         self._set_progress_text("Stopping after the current episode...")
         LOG.warning("Stopping at your request. The episode in progress will finish first.")
+
+    # -- the status bar ----------------------------------------------------
+
+    def _announce(self, message: str) -> None:
+        """Say something. The log is the only place this program can speak.
+
+        wxWidgets has no live region on any platform, so the log cannot
+        announce itself -- which is why the status bar is focusable instead.
+        Everything said here is therefore also readable on demand.
+        """
+        if message:
+            LOG.info("%s", message)
+
+    def status_activity(self) -> str:
+        """What podHarvest is doing, in two or three words."""
+        if self._worker is not None and self._worker.is_alive():
+            return self._activity or "Working"
+        if self._hw is None:
+            return "Checking this machine"
+        return "Ready"
+
+    def status_progress(self) -> str:
+        """How far along, as a percentage, or "" when nothing is running."""
+        if self._worker is None or not self._worker.is_alive():
+            return ""
+        return f"{self.progress.GetValue()}%"
+
+    def status_progress_detail(self) -> str:
+        """The whole progress sentence, for Enter on the Progress cell."""
+        text = self.progress_text.GetLabel().strip()
+        return text or "Nothing is running."
+
+    def status_source(self) -> str:
+        """Which source, and what it currently points at."""
+        mode = self.source_mode()
+        if mode == "local":
+            count = len(self._local_paths)
+            return f"{count} local file" + ("s" if count != 1 else "")
+        url = self.url_ctrl.GetValue().strip()
+        if not url:
+            return "Find a podcast" if mode == "find" else "No feed yet"
+        return self._browsed_title or url
+
+    def status_model(self) -> str:
+        """The chosen model, and whether it can actually run."""
+        choice = self._selected_model()
+        if choice is None:
+            return "none yet"
+        if not self.chk_transcribe.GetValue():
+            return f"{choice.model} (transcription off)"
+        ready, _sentence = self._model_readiness(choice)
+        return f"{choice.model}, ready" if ready else f"{choice.model}, not downloaded"
+
+    def status_library(self) -> str:
+        """How much is in the Episodes list right now."""
+        count = self.episode_list.GetItemCount()
+        return f"{count} episode" + ("s" if count != 1 else "")
+
+    def _status_model_action(self) -> None:
+        """Enter on the Model cell: fetch it, or go to the picker."""
+        choice = self._selected_model()
+        if choice is None:
+            self.model_choice.SetFocus()
+            return
+        ready, _sentence = self._model_readiness(choice)
+        if ready:
+            self.model_choice.SetFocus()
+        else:
+            self._on_download_model()
+
+    def _focus_source(self) -> None:
+        """Enter on the Source cell: go to whichever input is in use."""
+        if self.source_mode() == "local":
+            if self._local_buttons:
+                self._local_buttons[0].SetFocus()
+            return
+        self.url_ctrl.SetFocus()
+
+    def _focus_episodes(self) -> None:
+        self.episode_list.SetFocus()
+
+    def _refresh_status_bar(self) -> None:
+        """Repaint the bar. Cheap, and safe to call from anywhere."""
+        bar = getattr(self, "status_bar", None)
+        if bar is not None:
+            bar.refresh()
+
+    def _on_status_focus(self, _evt=None) -> None:
+        """F6: into the status bar, or back out again."""
+        bar = getattr(self, "status_bar", None)
+        if bar is None:
+            return
+        if not bar.is_shown():
+            LOG.info("The status bar is hidden. View then Show the status bar "
+                     "brings it back.")
+            return
+        bar.toggle_focus(return_focus=self.FindFocus())
+
+    def _toggle_status_bar(self, _evt=None) -> None:
+        """Show or hide the bar, and remember which."""
+        bar = getattr(self, "status_bar", None)
+        if bar is None:
+            return
+        shown = not bar.is_shown()
+        bar.set_visible(shown)
+        self.settings.show_status_bar = shown
+        config_mod.save(self.app_space, self.settings)
+        self._menu_status_bar.Check(shown)
+        LOG.info("The status bar is now %s. F6 moves focus into it; View then "
+                 "Show the status bar toggles it.",
+                 "shown" if shown else "hidden")
+        self.Layout()
 
     # -- system tray -------------------------------------------------------
 

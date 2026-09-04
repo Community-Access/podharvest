@@ -106,5 +106,6 @@
   "reader.py::__init__::wx.Button#3": "helped",
   "reader.py::__init__::wx.Button#4": "helped",
   "reader.py::__init__::wx.TextCtrl": "helped",
-  "reader.py::__init__::wx.TextCtrl#2": "helped"
+  "reader.py::__init__::wx.TextCtrl#2": "helped",
+  "status_bar.py::build::wx.Button": "helped"
 }

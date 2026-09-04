@@ -24,7 +24,7 @@ import sys
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from podharvest.appspace import AppSpace
 from podharvest.hardware import ModelChoice
@@ -71,6 +71,57 @@ def _manifest_path(model_dir: Path) -> Path:
 # the classic failure mode of a truncated/interrupted download or an error
 # page saved with the right filename - "present" but not "working".
 _MIN_PLAUSIBLE_BYTES = 1024
+
+#: Directories inside a downloaded snapshot that are not model content.
+#: `huggingface_hub` keeps its own bookkeeping in `.cache/`, including a
+#: one-byte `.gitignore`. Recording those as model files meant every
+#: verification failed on a perfectly good download -- "missing or truncated
+#: .gitignore" -- which is a sentence about a file nobody was ever going to
+#: load.
+_NOT_MODEL_DIRS: frozenset[str] = frozenset({".cache", "__pycache__"})
+
+#: Extensions that carry the actual weights. Only these have to be *big*.
+#: Everything else in a repo -- config.json, tokenizer.json, .gitattributes,
+#: a README -- is legitimately small, and a size floor applied to all of them
+#: rejects healthy downloads.
+_WEIGHT_SUFFIXES: frozenset[str] = frozenset({
+    ".bin", ".safetensors", ".onnx", ".pt", ".pth", ".ckpt", ".nemo",
+    ".gguf", ".ggml", ".tflite", ".mlmodel",
+})
+
+
+def is_model_content(relative: str) -> bool:
+    """Whether *relative* is part of the model rather than bookkeeping.
+
+    Excludes the tool's own manifest and the downloader's cache. Both used to
+    be recorded as model files: the manifest because it is written into the
+    same folder before the file list is taken on a re-download, and the cache
+    because a full-repo snapshot walks everything.
+    """
+    parts = PurePosixPath(relative).parts
+    if not parts:
+        return False
+    if parts[-1] == MANIFEST_NAME:
+        return False
+    return not any(part in _NOT_MODEL_DIRS for part in parts)
+
+
+def model_files(model_dir: Path) -> list[str]:
+    """Every real model file in *model_dir*, as paths relative to it.
+
+    Relative paths rather than bare names, because a snapshot has
+    subdirectories and `p.name` flattens them -- so `model_dir / name` could
+    not find the file again, and two files sharing a name in different folders
+    collapsed into one.
+    """
+    found = []
+    for path in sorted(model_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(model_dir).as_posix()
+        if is_model_content(relative):
+            found.append(relative)
+    return found
 GGUF_MAGIC = b"GGUF"
 
 
@@ -109,14 +160,38 @@ def verify_model(model_dir: Path, choice: ModelChoice, files: list[str] | None =
         return True, "ok"
 
     # faster-whisper / NeMo full-repo snapshots and anything else: every file
-    # the manifest recorded must still exist and be non-trivially sized.
-    names = files if files is not None else _read_manifest_files(model_dir)
+    # the manifest recorded must still be there, and the ones carrying weights
+    # must still be a plausible size.
+    #
+    # A fresh download passes its own list; anything else is asked of the disk
+    # rather than of the manifest.
+    #
+    # That is deliberate. An older version recorded bare filenames flattened
+    # out of their folders, including the downloader's own `.cache` -- so a
+    # perfectly good model carried a manifest naming `.gitignore` at the top
+    # level, where no such file has ever existed. Trusting that list meant
+    # failing forever on a file that was never model content, with a message
+    # telling the reader to delete a model that is entirely intact. The real
+    # question is "is there an intact model in this folder", and the folder is
+    # what can answer it.
+    names = list(files) if files is not None else model_files(model_dir)
+    names = [name for name in names if is_model_content(name)]
     if not names:
-        return False, "no files recorded for this model"
+        return False, "nothing was downloaded for this model"
+
+    weights = 0
     for name in names:
         path = model_dir / name
-        if not path.exists() or path.stat().st_size < _MIN_PLAUSIBLE_BYTES:
-            return False, f"missing or truncated {name}"
+        if not path.exists():
+            return False, f"missing {name}"
+        if Path(name).suffix.lower() in _WEIGHT_SUFFIXES:
+            weights += 1
+            if path.stat().st_size < _MIN_PLAUSIBLE_BYTES:
+                return False, f"truncated {name}"
+    if not weights:
+        # Nothing that could hold a model. A snapshot of only config files is
+        # not a download anybody can transcribe with.
+        return False, "no model weights among the downloaded files"
     return True, "ok"
 
 
@@ -432,8 +507,43 @@ def _download_via_http(client: HttpClient, url: str, dest: Path) -> int:
     return dest.stat().st_size
 
 
+def _reporting_tqdm(on_progress: Callable[[float, str], None] | None):
+    """A tqdm class that reports to *on_progress* as well as to the console.
+
+    `huggingface_hub` draws its own progress bars with tqdm, which is exactly
+    right on a terminal and invisible in a window -- so the Download model
+    button appeared to do nothing at all for several minutes. Handing
+    snapshot_download a tqdm subclass is the supported way in; every bar it
+    would have drawn calls back here instead.
+
+    Returns None when there is nobody to report to, so the ordinary console
+    behaviour is left completely alone.
+    """
+    if on_progress is None:
+        return None
+    try:
+        from tqdm.auto import tqdm as _tqdm
+    except ImportError:  # pragma: no cover - hub ships tqdm; belt and braces
+        return None
+
+    class _Reporting(_tqdm):  # type: ignore[misc, valid-type]
+        def update(self, n=1):  # noqa: D102 - tqdm's own signature
+            result = super().update(n)
+            try:
+                total = float(getattr(self, "total", 0) or 0)
+                done = float(getattr(self, "n", 0) or 0)
+                percent = (100.0 * done / total) if total > 0 else 0.0
+                on_progress(percent, str(getattr(self, "desc", "") or ""))
+            except Exception:  # noqa: BLE001 - a progress bar must never fail a download
+                pass
+            return result
+
+    return _Reporting
+
+
 def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient | None = None,
-                      force: bool = False) -> AcquisitionResult:
+                      force: bool = False,
+                      on_progress: Callable[[float, str], None] | None = None) -> AcquisitionResult:
     """Download (or confirm already present) everything `choice` needs.
 
     Hugging-Face-hosted engines (faster-whisper, parakeet, nemo-canary,
@@ -446,10 +556,16 @@ def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient 
     if not force and is_downloaded(app, choice):
         return AcquisitionResult(model_dir, True, [])
 
+    def say(percent: float, detail: str = "") -> None:
+        if on_progress is not None:
+            on_progress(percent, detail)
+
+    say(0.0, f"setting up the {choice.engine} engine")
     if not ensure_engine_packages(app, choice.engine):
         raise HarvestError(
             f"Could not install the Python packages required for engine '{choice.engine}'. "
             "Check your internet connection and try again, or pick a different engine.")
+    say(0.0, f"downloading {choice.model}")
 
     model_dir.mkdir(parents=True, exist_ok=True)
     files: list[str] = []
@@ -478,14 +594,25 @@ def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient 
     else:  # a full HF repo snapshot (faster-whisper CT2 dirs, NeMo checkpoints)
         try:
             from huggingface_hub import snapshot_download  # type: ignore
-            snapshot_download(repo_id=choice.source, local_dir=str(model_dir),
-                              local_dir_use_symlinks=False)
-            files = [p.name for p in model_dir.rglob("*") if p.is_file()]
+            reporting = _reporting_tqdm(on_progress)
+            kwargs = {"repo_id": choice.source, "local_dir": str(model_dir),
+                      "local_dir_use_symlinks": False}
+            if reporting is not None:
+                kwargs["tqdm_class"] = reporting
+            try:
+                snapshot_download(**kwargs)
+            except TypeError:
+                # An older hub without tqdm_class. Losing the progress bar is
+                # not a reason to lose the download.
+                kwargs.pop("tqdm_class", None)
+                snapshot_download(**kwargs)
+            files = model_files(model_dir)
         except ImportError as exc:
             raise HarvestError(
                 f"'huggingface_hub' is required to download {choice.source} as a full repo "
                 f"snapshot; run 'podharvest hardware' first to auto-install it. ({exc})") from exc
 
+    say(100.0, "checking what was downloaded")
     _write_manifest(model_dir, choice, files)
     ok, reason = verify_model(model_dir, choice, files)
     if not ok:

@@ -252,7 +252,8 @@ class TestTheWindow:
 
         source = inspect.getsource(gui.MainFrame._build_source_box)
         assert "wx.RadioBox" in source
-        assert "Podcast &feed" in source and "&Local files" in source
+        assert "Podcast f&eed" in source and "&Local files" in source
+        assert "&Find a podcast" in source, "three sources, not two"
 
     def test_switching_source_swaps_the_box_and_relabels_start(self):
         pytest.importorskip("wx")

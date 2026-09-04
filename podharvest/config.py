@@ -134,6 +134,10 @@ class Settings:
     # is an intrusion. On, it is the only thing that reports progress without
     # you reading the log, which cannot announce itself -- see cues.py.
     sound_cues: bool = False
+    # The focusable status bar along the bottom. On by default: it is
+    # the only place a run's state can be *read on demand*, since the
+    # activity log cannot announce itself.
+    show_status_bar: bool = True
     # Which of Apple's stores the podcast search asks. They carry
     # different shows, so a local podcast may only appear in its own
     # country's store. Any two-letter code Apple recognises works, not
@@ -147,9 +151,10 @@ class Settings:
     local_transcripts_beside_file: bool = True
     local_recurse_folders: bool = True
     # Which source the main window is on. Remembered because somebody using
-    # podHarvest as a tag editor should not have to switch back to Local
-    # files on every launch. "feed" or "local".
+    # podHarvest as a tag editor should not have to switch back to Local files
+    # on every launch. "find", "feed" or "local".
     source_mode: str = "feed"
+
     playback_rates: list[float] = field(
         default_factory=lambda: [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0])
 
@@ -188,7 +193,7 @@ class Settings:
             setattr(settings, name, max(1_000, min(300_000, value)))
         settings.remember_playback_position = bool(settings.remember_playback_position)
         settings.playback_rates = clean_rates(settings.playback_rates)
-        if settings.source_mode not in {"feed", "local"}:
+        if settings.source_mode not in {"find", "feed", "local"}:
             settings.source_mode = "feed"
         from podharvest.directory import (
             DEFAULT_LIMIT,

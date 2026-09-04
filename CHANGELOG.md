@@ -11,6 +11,17 @@ First public release.
 
 ### Fixed
 
+- **A downloaded model could fail verification and be re-downloaded forever.**
+  A full-repo snapshot recorded every file it found as model content --
+  including `huggingface_hub`'s own `.cache` bookkeeping, which contains a
+  one-byte `.gitignore`, and podHarvest's own `manifest.json`. Both then failed
+  a size floor meant for catching truncated weights, so a perfectly intact
+  model reported "missing or truncated .gitignore" and told you to delete it.
+  The recorded list also flattened subdirectories, so a nested file could never
+  be found again. Verification now asks the folder rather than a possibly stale
+  list, ignores bookkeeping, records relative paths, and applies the size floor
+  only to files that actually carry weights. A model broken by the old code
+  heals without being downloaded again.
 - **Transcription could not work at all in the packaged build.** Every attempt
   to set up an engine failed with `invalid choice: 'pip'`, and the run reported
   only "skipping transcription". Four separate faults, none of which are
@@ -54,6 +65,16 @@ First public release.
   still missing -- the engine's packages and the model weights are separate
   downloads and either can be absent on its own -- and a **Download model**
   button fetches them on the spot, using the same calls a run makes.
+- **A status bar you can reach.** F6 moves focus into it, arrows move between
+  its cells, Home and End jump to the ends, Enter does the useful thing for
+  whichever cell you are on, and the context menu offers that plus copying the
+  value. Six cells -- activity, progress, source, model, library, time -- each
+  deriving its text from live state. Modelled on QUILL's, so the programs
+  behave alike.
+  - This replaces wx's own status bar, which cannot take focus at all. That is
+    why the window used to sit claiming it was detecting hardware long after it
+    had finished: nothing could read the message and nothing announced that it
+    had changed, so nobody noticed it was stale.
 - **Find a podcast by name.** Ctrl+K searches Apple's podcast directory --
   free, no account, the same one the podcast apps use -- so you no longer need
   a feed address to start. Narrow what your words match against (name,
@@ -71,6 +92,10 @@ First public release.
   Bookmarks rather than subscriptions, and the difference is the design:
   nothing polls, schedules, notifies or downloads, and a test asserts the
   module cannot. Removing one removes the bookmark only.
+- **A third source: Find a podcast**, beside Podcast feed and Local files, so
+  the search is a place you can be rather than only a button. Selecting it puts
+  focus on Find Podcast; the search field and its button are now labelled for
+  what they do.
 - **A richer menu bar**, grouped by what each entry acts on rather than by
   what happened to be implemented near what: File chooses the podcast or the
   files, Episode acts on whichever is highlighted, View moves focus, Tools
@@ -98,6 +123,10 @@ First public release.
   and the group stays dark until hardware detection has found anything at all.
   A filter you are sitting on that stops applying moves the selection rather
   than silently emptying the list.
+- **Downloading a model shows its progress.** The button appeared to do
+  nothing for several minutes, because `huggingface_hub` draws its progress
+  with tqdm, which is right on a terminal and invisible in a window. The gauge
+  and the status line now move as it downloads.
 - **`podharvest doctor`**, which answers the same question from the command
   line and more: where everything lives, whether FFmpeg is there, whether
   packages can be installed at all, and per engine whether each package is

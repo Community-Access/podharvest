@@ -181,6 +181,7 @@ a = Analysis(
         "podharvest.directory",
         "podharvest.discover",
         "podharvest.favorites",
+        "podharvest.status_bar",
         "podharvest.reader",
         "podharvest.media_health",
         "podharvest.player",

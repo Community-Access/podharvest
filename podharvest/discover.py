@@ -55,7 +55,7 @@ class SearchDialog(wx.Dialog):
 
         # -- what to search for ------------------------------------------
         term_row = wx.BoxSizer(wx.HORIZONTAL)
-        term_row.Add(wx.StaticText(self, label="&Podcast name:"), 0,
+        term_row.Add(wx.StaticText(self, label="&Search for a podcast:"), 0,
                      wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.term_ctrl = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
         self.term_ctrl.SetToolTip(
@@ -63,13 +63,15 @@ class SearchDialog(wx.Dialog):
             "about. Press Enter to search."
         )
         self.term_ctrl.SetHint("a show, a presenter, or a subject")
-        set_accessible_name(self.term_ctrl, "Podcast name")
+        set_accessible_name(self.term_ctrl, "Search for a podcast")
         self.term_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self.on_search())
         term_row.Add(self.term_ctrl, 1, wx.RIGHT, 6)
 
-        self.search_btn = wx.Button(self, label="&Search")
-        self.search_btn.SetToolTip("Ask the directory for shows matching what "
-                                   "you typed.")
+        self.search_btn = wx.Button(self, label="Find &Podcast")
+        self.search_btn.SetToolTip(
+            "Asks Apple's directory for shows matching what you typed. Enter "
+            "in the box above does the same.")
+        set_accessible_name(self.search_btn, "Find Podcast")
         self.search_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_search())
         term_row.Add(self.search_btn, 0)
         root.Add(term_row, 0, wx.EXPAND | wx.ALL, 10)
