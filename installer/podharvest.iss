@@ -95,6 +95,7 @@ Source: "..\docs\GETTING_STARTED.md"; DestDir: "{app}\docs"; Flags: ignoreversio
 Source: "..\docs\REFERENCE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\MODELS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\ACCESSIBILITY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\CODE-REVIEW-2026-09.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"

@@ -567,6 +567,9 @@ never in `settings.json`.
 |---|---|---|---|
 | OpenAI | yes | yes | `whisper-1` is the only OpenAI model returning timestamps |
 | Google Gemini | yes | yes | Labels speakers in the same pass, no separate step |
+| Groq | yes | no | Whisper large-v3-turbo on Groq's own chips: about four cents an hour, free tier, real timestamps |
+| ElevenLabs | yes | no | Scribe: accuracy-first, labels speakers in the same pass |
+| Azure MAI-Transcribe | yes | no | Preview; English and Spanish; off until you switch it on - see [its own section](#azure-mai-transcribe-2-preview) |
 | OpenRouter | no | yes | One key, hundreds of text models |
 | Ollama Cloud | no | yes | Hosted open models |
 

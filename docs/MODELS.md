@@ -1,5 +1,9 @@
 # Supported on-device models
 
+(Cloud models - OpenAI, Google Gemini, Groq, ElevenLabs and Azure
+MAI-Transcribe - are covered in [REFERENCE.md](REFERENCE.md#optional-cloud-models);
+this file is the catalogue of what runs on your own machine.)
+
 > **Licensing:** podHarvest itself is MIT-licensed, but that does **not** extend to the
 > models it can download. Whisper, Parakeet, Canary, Vosk, Moonshine, Phi, Llama, Nemotron,
 > Mistral and pyannote each carry their own separate licence, and they are not all
@@ -28,6 +32,7 @@ CTranslate2 re-implementation of OpenAI Whisper. Runs on CPU (`int8`) or any GPU
 | `distil-medium.en` | 1.5 GB | 3 GB | Distilled - near-medium accuracy, faster |
 | `medium.en` | 1.5 GB | 5 GB | High accuracy |
 | `distil-large-v3` | 1.5 GB | 4 GB | Near-large-v3 accuracy, notably faster |
+| `distil-large-v3.5` | 1.5 GB | 4 GB | The newer distillation, trained on 4x the audio - more accurate at the same speed. Loads from podHarvest's own model store, so it works although faster-whisper's built-in name list has never heard of it |
 | `large-v3-turbo` | 1.6 GB | 6 GB | OpenAI's 2024 pruned large model - ~8x faster than large-v3 for a small accuracy cost |
 | `large-v3` | 3.0 GB | 10 GB | Best accuracy, slowest |
 
@@ -37,12 +42,13 @@ License: MIT (both the `faster-whisper`/CTranslate2 code and the underlying Whis
 
 TDT (Token-and-Duration Transducer) models. The fastest and most accurate English ASR you can run locally today when you have an NVIDIA GPU - but genuinely **CUDA-only**: it needs a working CUDA build of PyTorch plus the multi-GB `nemo_toolkit[asr]` stack, and there is no practical CPU path. If you don't have an NVIDIA GPU, use **Parakeet-ONNX** below instead of this engine.
 
-| Model | Approx. size | Min VRAM |
-|---|---|---|
-| `parakeet-tdt-0.6b-v2` | 2.4 GB | 3 GB |
-| `parakeet-tdt-1.1b` | 4.4 GB | 5 GB |
+| Model | Approx. size | Min VRAM | Languages |
+|---|---|---|---|
+| `parakeet-tdt-0.6b-v2` | 2.4 GB | 3 GB | English |
+| `parakeet-tdt-0.6b-v3` | 2.4 GB | 3 GB | 25 European languages, detected automatically |
+| `parakeet-tdt-1.1b` | 4.4 GB | 5 GB | English |
 
-License: CC-BY-4.0. English only. **There is no smaller official Parakeet checkpoint** - 0.6B is NVIDIA's smallest public release; the 1.1B is larger, not smaller. A CTC/RNNT-head variant exists at the same 0.6B size (different decoder, not a size reduction).
+License: CC-BY-4.0. v2 and 1.1b are English only; v3 is the multilingual successor at the same size and speed - v2 remains the better pick for purely English work. **There is no smaller official Parakeet checkpoint** - 0.6B is NVIDIA's smallest public release; the 1.1B is larger, not smaller. A CTC/RNNT-head variant exists at the same 0.6B size (different decoder, not a size reduction).
 
 ### Parakeet-ONNX (sherpa-onnx) - the PyTorch-free path
 

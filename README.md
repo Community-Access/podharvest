@@ -254,9 +254,10 @@ it off in Settings if you would rather always start at the top.
 No. Everything works on your own machine, for free, forever.
 
 There is an optional extra: if you already have an account with OpenAI, Google Gemini,
-OpenRouter or Ollama Cloud, you can paste in your API key and use their models instead. That
-can be faster on an older computer, and Google's models are rather good at working out who is
-speaking. You pay them directly for what you use, usually a few dollars for a whole podcast
+Groq, ElevenLabs, OpenRouter, Ollama Cloud or Azure, you can paste in your API key and use
+their models instead. That can be faster on an older computer; Groq and Gemini both have free
+tiers, Groq runs full-size Whisper for about four cents an hour, and Google's and ElevenLabs'
+models are rather good at working out who is speaking. You pay them directly for what you use, usually a few dollars for a whole podcast
 back catalogue. podHarvest shows a rough cost before you start, but treat it as a
 ballpark: providers change their prices and most do not publish them in a form an app
 can read, so the figure is a dated snapshot with a link to check the current rate.
@@ -498,7 +499,7 @@ Two more things the app will tell you itself:
 
 ### The written documentation
 
-Five documents, each with a job. None of them is a dumping ground.
+Six documents, each with a job. None of them is a dumping ground.
 
 | Document | What it is for | Who it is for |
 |---|---|---|
@@ -507,6 +508,7 @@ Five documents, each with a job. None of them is a dumping ground.
 | [Technical reference](docs/REFERENCE.md) | Every command, flag, setting and output format; the library, the editor, the reuse rules; how to build an installer | Someone scripting it, tuning it or packaging it |
 | [Model catalogue](docs/MODELS.md) | Each transcription model, its accuracy, its speed, its size and its licence | Someone choosing a model, or checking one is safe to use commercially |
 | [Accessibility statement](docs/ACCESSIBILITY.md) | What has been verified with which screen reader, and — plainly — what has not | Someone deciding whether this will work for them |
+| [Code review, September 2026](docs/CODE-REVIEW-2026-09.md) | What a full review of the engines and pipeline found, fixed, added and deliberately left alone | Someone judging the code's honesty, or proposing a new provider |
 
 And for the project itself: [Contributing](CONTRIBUTING.md), the
 [Changelog](CHANGELOG.md), and the [Security policy](SECURITY.md), which
