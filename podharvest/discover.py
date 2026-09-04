@@ -164,7 +164,7 @@ class SearchDialog(wx.Dialog):
             "including its feed address. Read-only."
         )
         set_accessible_name(self.detail, "About the highlighted show")
-        size_for_text(self.detail, lines=4)
+        size_for_text(self.detail, lines=4, chars=60)
         root.Add(self.detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # -- actions ------------------------------------------------------
@@ -539,7 +539,7 @@ class OpmlImportDialog(wx.Dialog):
             "What the list says about the highlighted show, including its "
             "feed address. Read-only.")
         set_accessible_name(self.detail, "About the highlighted show")
-        size_for_text(self.detail, lines=4)
+        size_for_text(self.detail, lines=4, chars=60)
         root.Add(self.detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # -- ticking ------------------------------------------------------

@@ -316,6 +316,73 @@ class TestReadableSizing:
 
         size_for_text(_Stubborn(), lines=5)  # must not raise
 
+    def test_a_prose_box_cannot_be_crushed_to_a_word_a_line(self, app):
+        """Width, not just height. With no width floor, a resized window can
+        squeeze a read-only box until every line holds one word -- the
+        degenerate wrapping the floor exists to prevent."""
+        wx = pytest.importorskip("wx")
+        from podharvest.a11y import MIN_PROSE_CHARS, size_for_text
+
+        frame = wx.Frame(None)
+        try:
+            ctrl = wx.TextCtrl(frame, style=wx.TE_MULTILINE | wx.TE_READONLY)
+            size_for_text(ctrl, lines=5)
+            floor = ctrl.GetCharWidth() * MIN_PROSE_CHARS
+            assert ctrl.GetMinSize().GetWidth() >= floor
+        finally:
+            frame.Destroy()
+
+    def test_the_width_floor_is_a_readable_line_length(self):
+        """Typography puts comfortable prose at 45-90 characters a line."""
+        pytest.importorskip("wx")
+        from podharvest.a11y import MIN_PROSE_CHARS
+
+        assert 45 <= MIN_PROSE_CHARS <= 90
+
+    def test_the_width_floor_tracks_the_font_too(self, app):
+        wx = pytest.importorskip("wx")
+        from podharvest.a11y import size_for_text
+
+        frame = wx.Frame(None)
+        try:
+            ctrl = wx.TextCtrl(frame, style=wx.TE_MULTILINE)
+            size_for_text(ctrl, lines=5)
+            at_normal = ctrl.GetMinSize().GetWidth()
+
+            font = ctrl.GetFont()
+            font.SetPointSize(font.GetPointSize() * 2)
+            ctrl.SetFont(font)
+            size_for_text(ctrl, lines=5)
+            assert ctrl.GetMinSize().GetWidth() > at_normal
+        finally:
+            frame.Destroy()
+
+    def test_the_main_window_cannot_be_sized_below_its_prose(self):
+        """The per-box floors are only promises if the window itself has a
+        minimum. Without one, wx squeezes the sizers proportionally and the
+        model description ends up showing eleven characters a line."""
+        pytest.importorskip("wx")
+        import inspect
+
+        from podharvest import gui
+
+        assert "_respect_the_text_floors" in inspect.getsource(gui.MainFrame)
+        guard = inspect.getsource(gui.MainFrame._respect_the_text_floors)
+        assert "SetMinClientSize" in guard
+        assert "0.9" in guard, "capped to the screen, so small displays still work"
+
+    def test_no_call_site_opts_out_of_the_width_floor(self):
+        """chars=0 turns the floor off. Nothing in the app has a reason to."""
+        import re
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parent.parent / "podharvest"
+        for path in sorted(package.glob("*.py")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                call = re.search(r"size_for_text\(.*chars=(\d+)", line)
+                if call:
+                    assert int(call.group(1)) > 0, f"{path.name}: {line.strip()}"
+
     def test_no_read_only_box_is_sized_in_raw_pixels(self):
         """The defect this guards: a hardcoded height beside TE_READONLY."""
         import re

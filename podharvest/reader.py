@@ -80,7 +80,7 @@ class TranscriptDialog(wx.Dialog):
             "arrow through it, or select and copy. Find above jumps to a word."
         )
         set_accessible_name(self.text, "Transcript")
-        size_for_text(self.text, lines=20)
+        size_for_text(self.text, lines=20, chars=72)
         root.Add(self.text, 1, wx.EXPAND | wx.ALL, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)

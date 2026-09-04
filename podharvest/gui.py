@@ -1652,7 +1652,7 @@ class MainFrame(wx.Frame):
                                  "from anywhere.")
         # A floor, not a ceiling: the sizer still stretches it to fill the
         # window, but it never collapses to a two-line slot in a short one.
-        size_for_text(self.log_ctrl, lines=8)
+        size_for_text(self.log_ctrl, lines=8, chars=60)
         set_accessible_name(self.log_ctrl, "Activity log")
         outer.Add(self.log_ctrl, 1, wx.EXPAND | wx.ALL, 10)
 
@@ -1680,6 +1680,27 @@ class MainFrame(wx.Frame):
         # after the sizer is set, means the window opens on whichever source
         # was last used rather than flickering through the other one.
         self._apply_source_mode(refresh=False)
+        self._respect_the_text_floors(panel)
+
+    def _respect_the_text_floors(self, panel: wx.Panel) -> None:
+        """Keep the window at least as wide as its prose needs to wrap well.
+
+        Every read-only text box declares a minimum readable width in
+        characters of its own font (see a11y.size_for_text). Those floors are
+        only promises if the window itself cannot be sized below what they add
+        up to -- otherwise the sizers squeeze proportionally and a box ends up
+        showing two or three words a line. So the content's own best size
+        becomes the window minimum, capped to 90% of the screen it opens on:
+        on a small display the cap wins and scrolling text beats an unusable
+        window, the same trade the Settings dialog makes.
+        """
+        best = panel.GetBestSize()
+        area = wx.Display(self).GetClientArea() if wx.Display.GetCount() else None
+        cap = int(area.width * 0.9) if area else best.width
+        floor = min(best.width, cap)
+        self.SetMinClientSize(wx.Size(floor, -1))
+        if self.GetClientSize().GetWidth() < floor:
+            self.SetClientSize(wx.Size(floor, self.GetClientSize().GetHeight()))
 
     def _build_playback_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         """Play the selected episode, without opening anything.
@@ -2522,7 +2543,7 @@ class MainFrame(wx.Frame):
         # The longest of the three: it holds several sentences about speed,
         # accuracy and download size, and scrolling to read an answer you
         # asked for is worse than a slightly taller box.
-        size_for_text(self.model_info, lines=10)
+        size_for_text(self.model_info, lines=10, chars=60)
         self.model_info.SetToolTip(
             "What the selected transcription model will cost you in time for the podcast you "
             "have loaded, measured on this machine where possible. Read-only."
@@ -3735,7 +3756,7 @@ class _BugReportDialog(wx.Dialog):
             "through it, or select and copy."
         )
         set_accessible_name(self.preview, "The report")
-        size_for_text(self.preview, lines=14)
+        size_for_text(self.preview, lines=14, chars=72)
         root.Add(self.preview, 1, wx.EXPAND | wx.ALL, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)

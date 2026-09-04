@@ -57,7 +57,17 @@ def set_accessible_name(ctrl: wx.Window, name: str) -> None:
         pass
 
 
-def size_for_text(ctrl: wx.Window, *, lines: int, chars: int = 0) -> None:
+#: The narrowest a prose box is ever allowed to become, in characters of its
+#: own font. Typography puts comfortable reading at roughly 45-90 characters a
+#: line; below the low end, wrapping degenerates -- two or three words to a
+#: line, then one, then hyphen-less fragments -- and a screen magnifier user
+#: gets the worst of it, because their font is big and their window is not.
+#: Nothing ever *set* a width floor before this existed, so any resized window
+#: could crush any read-only box into that state.
+MIN_PROSE_CHARS = 45
+
+
+def size_for_text(ctrl: wx.Window, *, lines: int, chars: int = MIN_PROSE_CHARS) -> None:
     """Size *ctrl* to hold *lines* lines of its own font, and grow with it.
 
     Pixels are the wrong unit for a box that holds text. The same 90 pixels is
@@ -68,8 +78,10 @@ def size_for_text(ctrl: wx.Window, *, lines: int, chars: int = 0) -> None:
 
     Sets the *minimum* size rather than the size, so sizers can still stretch
     the control to fill space -- the floor is "enough to read", not a ceiling.
-    Passing *chars* also sets a minimum width in characters, for a box whose
-    line length matters.
+    *chars* is the width floor, in characters; it defaults to
+    `MIN_PROSE_CHARS` so no prose box can be squeezed into a column of single
+    words, and a reading surface can ask for more. Pass ``chars=0`` for the
+    rare box whose width genuinely does not matter.
     """
     try:
         char_height = ctrl.GetCharHeight()

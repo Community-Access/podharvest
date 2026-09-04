@@ -23,6 +23,12 @@ First public release.
 
 ### Fixed (September review)
 
+- **No text box can be squeezed into a column of single words.** Every
+  read-only text area now declares a minimum readable width in characters of
+  its own font (45 at least, more for reading surfaces), and the main window
+  refuses to shrink below what its text needs -- capped to 90% of the screen,
+  so small displays still work. Before this, resizing the window could crush
+  the model description to eleven characters a line.
 - **Every engine now loads models from the same store the Download button
   fills.** Four of six did not: faster-whisper and NeMo re-downloaded
   gigabytes the button had already fetched, a model the engine had fetched
