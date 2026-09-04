@@ -20,10 +20,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from podharvest.util import LOG
+
+#: `datetime.UTC` is Python 3.11 and up, and podHarvest supports 3.10 -- so
+#: the long spelling, which works everywhere. See `tests/test_directory.py`
+#: for the gate that stops this being reintroduced.
+_UTC = timezone.utc
 
 #: The file, inside the app space's config folder.
 FILE_NAME = "favorites.json"
@@ -81,7 +86,7 @@ class Favorite:
             artist=getattr(result, "artist", "") or "",
             homepage=getattr(result, "homepage", "") or "",
             collection_id=str(getattr(result, "collection_id", "") or ""),
-            added_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            added_at=datetime.now(_UTC).isoformat(timespec="seconds"),
         )
 
 
@@ -171,7 +176,7 @@ def add(app, favorite: Favorite) -> tuple[bool, str]:
         return False, (f"Your favourites list is full ({MAX_FAVORITES}). "
                        "Remove something first.")
     if not favorite.added_at:
-        favorite.added_at = datetime.now(UTC).isoformat(timespec="seconds")
+        favorite.added_at = datetime.now(_UTC).isoformat(timespec="seconds")
     favorites.append(favorite)
     if not save(app, favorites):
         return False, "Could not save your favourites; nothing was changed."

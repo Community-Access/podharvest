@@ -592,3 +592,86 @@ class TestTheMenuBar:
         source = inspect.getsource(frame._on_help_here.__func__)
         assert "help_mod.show_help" in source
         assert "FindFocus()" in source, "help must be about the focused control"
+
+
+class TestItStillRunsOnTheOldestPythonSupported:
+    """podHarvest declares Python 3.10 and up. Nothing may need more.
+
+    This is written from experience rather than caution. `datetime.UTC` --
+    added in 3.11 -- shipped in the favourites list and passed every local
+    check, because the machine it was written on runs 3.13. Only CI, on the
+    3.10 leg, caught it, and by then it was pushed.
+
+    A developer will not usually have every supported Python to hand, so the
+    guard has to work from the source. It reads the floor out of pyproject so
+    the two can never disagree, and names the traps that have actually bitten.
+    """
+
+    #: Things that do not exist in every Python this project supports, and the
+    #: version each arrived in. Add to it whenever CI finds another.
+    TOO_NEW = {
+        "3.11": (
+            ("datetime import UTC", "from datetime import UTC"),
+            ("datetime.UTC", "datetime.UTC"),
+            ("typing.Self", "from typing import Self"),
+            ("StrEnum", "from enum import StrEnum"),
+            ("ExceptionGroup", "except*"),
+            ("tomllib", "import tomllib"),
+        ),
+        "3.12": (
+            ("itertools.batched", "from itertools import batched"),
+            ("type statement", "\ntype "),
+            # `Path.walk` is 3.12 and deliberately absent: the only textual
+            # needle for it is ".walk(", which also matches ast.walk and
+            # os.walk -- both fine, and both used in this package. A gate that
+            # cries wolf is a gate somebody switches off.
+        ),
+        "3.13": (
+            ("warnings.deprecated", "from warnings import deprecated"),
+        ),
+    }
+
+    def _floor(self) -> tuple[int, int]:
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        text = (root / "pyproject.toml").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.strip().startswith("requires-python"):
+                digits = line.split(">=")[1].strip().strip('"\' ')
+                major, _, minor = digits.partition(".")
+                return int(major), int(minor)
+        raise AssertionError("pyproject.toml does not declare requires-python")
+
+    def test_the_floor_is_declared(self):
+        assert self._floor() == (3, 10)
+
+    def test_nothing_uses_an_api_newer_than_the_floor(self):
+        from pathlib import Path
+
+        floor = self._floor()
+        package = Path(__file__).resolve().parent.parent / "podharvest"
+        problems: list[str] = []
+        for source in sorted(package.glob("*.py")):
+            text = source.read_text(encoding="utf-8")
+            for version, entries in self.TOO_NEW.items():
+                major, _, minor = version.partition(".")
+                if (int(major), int(minor)) <= floor:
+                    continue
+                for name, needle in entries:
+                    # The comment explaining the ban is not a use of it.
+                    for line in text.splitlines():
+                        stripped = line.strip()
+                        if stripped.startswith("#") or stripped.startswith("#:"):
+                            continue
+                        if needle in line:
+                            problems.append(
+                                f"{source.name}: {name} needs Python {version}")
+                            break
+        assert not problems, "\n".join(problems)
+
+    def test_the_guard_would_actually_catch_it(self):
+        """A gate nobody has seen fail is a gate nobody should trust."""
+        offending = "from datetime import UTC\n"
+        needles = [n for _label, n in self.TOO_NEW["3.11"]]
+        assert any(needle in offending for needle in needles)
