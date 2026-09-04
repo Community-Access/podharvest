@@ -138,6 +138,31 @@ class Settings:
     # the only place a run's state can be *read on demand*, since the
     # activity log cannot announce itself.
     show_status_bar: bool = True
+
+    # -- Azure MAI-Transcribe (preview) ---------------------------------
+    # Off until somebody turns it on, and it stays that way after an update.
+    # It is a preview service: the price is not in Azure's published table and
+    # the API can change, so it is never a default and never a silent
+    # fallback. See podharvest/azure_mai.py and MAI-TRANSCRIBE-2-PRD.md.
+    azure_mai_enabled: bool = False
+    # Your own Speech resource. The key lives in the OS credential store with
+    # every other provider's; only these two are safe to keep in a file.
+    azure_speech_endpoint: str = ""
+    azure_speech_region: str = ""
+    # Pinned rather than floating, so a preview API changing shape can be
+    # answered by editing a setting instead of waiting for a new version.
+    azure_speech_api_version: str = "2025-10-15"
+    # auto detects between the two languages the service supports; en or es
+    # tells it, which is a strong hint and worth giving when you know.
+    mai_language: str = "auto"
+    # clean reads well; verbatim keeps the false starts, which is what a
+    # record needs and a read does not.
+    mai_transcribe_style: str = "clean"
+    mai_diarize: bool = True
+    mai_word_timestamps: bool = True
+    # Names and terms to bias recognition towards. Worth setting for a show
+    # with recurring guests, where every engine mangles the same few words.
+    mai_phrases: list[str] = field(default_factory=list)
     # Which of Apple's stores the podcast search asks. They carry
     # different shows, so a local podcast may only appear in its own
     # country's store. Any two-letter code Apple recognises works, not
@@ -195,6 +220,20 @@ class Settings:
         settings.playback_rates = clean_rates(settings.playback_rates)
         if settings.source_mode not in {"find", "feed", "local"}:
             settings.source_mode = "feed"
+        from podharvest.azure_mai import DEFAULT_API_VERSION, LANGUAGES, STYLES
+
+        if settings.mai_language not in {code for code, _label in LANGUAGES}:
+            settings.mai_language = "auto"
+        if settings.mai_transcribe_style not in {code for code, _label in STYLES}:
+            settings.mai_transcribe_style = "clean"
+        if not str(settings.azure_speech_api_version or "").strip():
+            settings.azure_speech_api_version = DEFAULT_API_VERSION
+        settings.mai_phrases = [
+            str(phrase).strip()
+            for phrase in (settings.mai_phrases
+                           if isinstance(settings.mai_phrases, list) else [])
+            if str(phrase).strip()
+        ]
         from podharvest.directory import (
             DEFAULT_LIMIT,
             MAX_LIMIT,

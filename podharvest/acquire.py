@@ -54,6 +54,17 @@ DIARIZATION_PACKAGES: dict[str, list[tuple[str, str]]] = {
 
 
 def _model_dir(app: AppSpace, choice: ModelChoice) -> Path:
+    """Where this model lives. The one answer, for every kind of model.
+
+    Enrichment models are the reason this checks `kind` first.
+    `acquire_enrichment_model` puts them in `models/enrichment/`, but this
+    function only knew about engines -- so it answered `models/llama-cpp/` and
+    `is_downloaded()` said no about every enrichment model that had in fact
+    been downloaded. Nothing asked that question yet, which is the only reason
+    it was not a visible bug; it was one waiting for a caller.
+    """
+    if choice.kind == "enrichment":
+        return app.models_dir / "enrichment" / choice.model
     base = {
         "faster-whisper": app.whisper_models_dir,
         "parakeet": app.parakeet_models_dir,
@@ -625,7 +636,7 @@ def acquire_asr_model(app: AppSpace, choice: ModelChoice, *, client: HttpClient 
 
 def acquire_enrichment_model(app: AppSpace, choice: ModelChoice, *,
                              client: HttpClient | None = None, force: bool = False) -> AcquisitionResult:
-    model_dir = app.models_dir / "enrichment" / choice.model
+    model_dir = _model_dir(app, choice)
     if not force and _manifest_path(model_dir).exists():
         ok, reason = verify_model(model_dir, choice)
         if ok:

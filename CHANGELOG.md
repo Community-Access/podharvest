@@ -11,6 +11,12 @@ First public release.
 
 ### Fixed
 
+- **`is_downloaded()` was permanently false for every enrichment model.**
+  `acquire_enrichment_model` writes to `models/enrichment/`, but `_model_dir`
+  only knew about engines and answered `models/llama-cpp/`, so nothing could
+  ever see a summary model that had in fact been downloaded. No caller asked
+  yet, which is the only reason it had not surfaced -- it was a bug waiting
+  for one. The path is now spelled once.
 - **A downloaded model could fail verification and be re-downloaded forever.**
   A full-repo snapshot recorded every file it found as model content --
   including `huggingface_hub`'s own `.cache` bookkeeping, which contains a
@@ -65,6 +71,18 @@ First public release.
   still missing -- the engine's packages and the model weights are separate
   downloads and either can be absent on its own -- and a **Download model**
   button fetches them on the spot, using the same calls a run makes.
+- **Azure MAI-Transcribe-2, as an option you turn on.** Microsoft's
+  MAI-Transcribe-2 through Fast Transcription, for English and Spanish: it
+  labels speakers and returns word-level timings in one request, and takes a
+  list of terms to bias recognition towards -- worth setting for a show with
+  recurring guests. Implemented from `MAI-TRANSCRIBE-2-PRD.md`, and its
+  preview posture is the design rather than a caveat: off until you turn it
+  on and off again after updates, never a default, never a silent fallback,
+  no price or speed claimed because Microsoft has published neither, the API
+  version pinned in a setting, and an explicit warning rather than silence
+  when speaker labels or word timings were asked for and did not come back.
+  Everything is configurable in Settings, and "Check this is set up" names
+  every missing piece at once without sending anything to Azure.
 - **A status bar you can reach.** F6 moves focus into it, arrows move between
   its cells, Home and End jump to the ends, Enter does the useful thing for
   whichever cell you are on, and the context menu offers that plus copying the

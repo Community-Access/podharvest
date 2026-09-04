@@ -182,6 +182,7 @@ a = Analysis(
         "podharvest.discover",
         "podharvest.favorites",
         "podharvest.status_bar",
+        "podharvest.azure_mai",
         "podharvest.reader",
         "podharvest.media_health",
         "podharvest.player",

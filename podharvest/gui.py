@@ -267,6 +267,8 @@ class SettingsDialog(wx.Dialog):
         outer.Add(sub_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         # -- cloud providers -----------------------------------------------
+        outer.Add(self._build_mai_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         outer.Add(self._build_directory_settings(), 0,
                   wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         outer.Add(self._build_local_settings(), 0,
@@ -440,6 +442,177 @@ class SettingsDialog(wx.Dialog):
         )
         box.Add(self.chk_remember_position, 0, wx.ALL, 6)
         return box
+
+    def _build_mai_settings(self) -> wx.StaticBoxSizer:
+        """Azure MAI-Transcribe: the switch, the resource, and how to ask.
+
+        A box of its own because it needs more than a key. Azure wants the
+        endpoint of *your* resource and a region that offers the model, and
+        neither can be guessed -- so both are asked for plainly rather than
+        letting a request fail with a 404 nobody can interpret.
+        """
+        from podharvest import azure_mai
+
+        box = wx.StaticBoxSizer(
+            wx.VERTICAL, self, "Azure MAI-Transcribe (preview)")
+        holder = box.GetStaticBox()
+
+        box.Add(wx.StaticText(
+            holder,
+            label="Microsoft's MAI-Transcribe-2, for English and Spanish. It labels "
+                  "speakers and\nreturns word timings in one pass. A preview service: "
+                  "the price is not in Azure's\npublished table and the API can change, "
+                  "so it is off until you turn it on."),
+            0, wx.ALL, 6)
+
+        self.chk_mai_enabled = wx.CheckBox(
+            holder, label="&Offer Azure MAI-Transcribe as a model")
+        self.chk_mai_enabled.SetValue(self.settings.azure_mai_enabled)
+        self.chk_mai_enabled.SetToolTip(
+            "Off by default, and stays off across updates. On, MAI-Transcribe-2 "
+            "appears in the model picker like any other cloud model. Turning it "
+            "off again removes it immediately, which is the quick way out if "
+            "the preview service misbehaves."
+        )
+        box.Add(self.chk_mai_enabled, 0, wx.ALL, 6)
+
+        grid = wx.FlexGridSizer(5, 2, 8, 8)
+        grid.AddGrowableCol(1)
+
+        # Label before control, so a screen reader pairs the two.
+        grid.Add(wx.StaticText(holder, label="Resource &endpoint:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.mai_endpoint_ctrl = wx.TextCtrl(
+            holder, value=self.settings.azure_speech_endpoint)
+        self.mai_endpoint_ctrl.SetHint(
+            "https://your-resource.cognitiveservices.azure.com")
+        self.mai_endpoint_ctrl.SetToolTip(
+            "Your own Azure Speech resource's address, from its page in the "
+            "Azure portal. It must start with https://: an API key is not "
+            "worth sending in the clear."
+        )
+        set_accessible_name(self.mai_endpoint_ctrl, "Azure resource endpoint")
+        grid.Add(self.mai_endpoint_ctrl, 1, wx.EXPAND)
+
+        grid.Add(wx.StaticText(holder, label="&Region:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.mai_region_ctrl = wx.TextCtrl(
+            holder, value=self.settings.azure_speech_region)
+        self.mai_region_ctrl.SetHint("eastus")
+        self.mai_region_ctrl.SetToolTip(
+            "The region your resource is in. Microsoft currently offers MAI in "
+            + ", ".join(azure_mai.KNOWN_REGIONS) +
+            ". Another region is not refused -- availability changes -- but "
+            "you will be warned that the model may not be there."
+        )
+        set_accessible_name(self.mai_region_ctrl, "Azure region")
+        grid.Add(self.mai_region_ctrl, 1, wx.EXPAND)
+
+        grid.Add(wx.StaticText(holder, label="&Language:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.mai_language_choice = wx.Choice(
+            holder, choices=[label for _code, label in azure_mai.LANGUAGES])
+        self.mai_language_choice.SetToolTip(
+            "This service handles English and Spanish. Detect automatically is "
+            "right when a show switches between them; naming one is a strong "
+            "hint and worth giving when you know which it is."
+        )
+        set_accessible_name(self.mai_language_choice, "Language")
+        codes = [code for code, _label in azure_mai.LANGUAGES]
+        self.mai_language_choice.SetSelection(
+            codes.index(self.settings.mai_language)
+            if self.settings.mai_language in codes else 0)
+        grid.Add(self.mai_language_choice, 0)
+
+        grid.Add(wx.StaticText(holder, label="&Transcript style:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.mai_style_choice = wx.Choice(
+            holder, choices=[label for _code, label in azure_mai.STYLES])
+        self.mai_style_choice.SetToolTip(
+            "Readable tidies up false starts and filler words. Verbatim keeps "
+            "every one of them, which is what you want when the transcript is "
+            "a record of what was said rather than something to read."
+        )
+        set_accessible_name(self.mai_style_choice, "Transcript style")
+        styles = [code for code, _label in azure_mai.STYLES]
+        self.mai_style_choice.SetSelection(
+            styles.index(self.settings.mai_transcribe_style)
+            if self.settings.mai_transcribe_style in styles else 0)
+        grid.Add(self.mai_style_choice, 0)
+
+        grid.Add(wx.StaticText(holder, label="&Bias towards these terms:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL)
+        self.mai_phrases_ctrl = wx.TextCtrl(
+            holder, value=", ".join(self.settings.mai_phrases))
+        self.mai_phrases_ctrl.SetHint("names, places, product names")
+        self.mai_phrases_ctrl.SetToolTip(
+            "Names and terms the show uses often, separated by commas. Azure "
+            "leans towards hearing these, which is worth setting for a podcast "
+            "with recurring guests -- every engine mangles the same handful of "
+            "words otherwise. They are hints, not substitutions: a term here "
+            "is not forced into the transcript."
+        )
+        set_accessible_name(self.mai_phrases_ctrl,
+                            "Terms to bias recognition towards")
+        grid.Add(self.mai_phrases_ctrl, 1, wx.EXPAND)
+        box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.chk_mai_diarize = wx.CheckBox(
+            holder, label="Label the &speakers")
+        self.chk_mai_diarize.SetValue(self.settings.mai_diarize)
+        self.chk_mai_diarize.SetToolTip(
+            "Asks Azure to say who is speaking, in the same request as the "
+            "transcript -- no separate speaker-identification pass and no "
+            "Hugging Face token. If it is asked for and does not come back, "
+            "the log says so rather than quietly returning less."
+        )
+        box.Add(self.chk_mai_diarize, 0, wx.LEFT | wx.RIGHT, 6)
+
+        self.chk_mai_words = wx.CheckBox(
+            holder, label="Ask for &word-level timings")
+        self.chk_mai_words.SetValue(self.settings.mai_word_timestamps)
+        self.chk_mai_words.SetToolTip(
+            "Times for every word rather than every phrase. More precise for "
+            "chapter markers and subtitles; ask for it only when something "
+            "downstream needs it."
+        )
+        box.Add(self.chk_mai_words, 0, wx.ALL, 6)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.mai_check_btn = wx.Button(holder, label="&Check this is set up")
+        self.mai_check_btn.SetToolTip(
+            "Says what is still missing -- the switch, the key, the endpoint, "
+            "the region -- all at once, rather than one failed request at a "
+            "time. Nothing is sent to Azure by this."
+        )
+        self.mai_check_btn.Bind(wx.EVT_BUTTON, self._on_check_mai)
+        row.Add(self.mai_check_btn, 0, wx.RIGHT, 8)
+        self.mai_status = wx.StaticText(holder, label="")
+        set_accessible_name(self.mai_status, "Azure MAI setup")
+        row.Add(self.mai_status, 1, wx.ALIGN_CENTER_VERTICAL)
+        box.Add(row, 0, wx.EXPAND | wx.ALL, 6)
+        return box
+
+    def _on_check_mai(self, _evt=None) -> None:
+        """Say what is missing, without sending anything anywhere."""
+        from podharvest import azure_mai
+
+        # Against what is on screen, not what was last saved: somebody who has
+        # just typed an endpoint expects the check to read it.
+        pending = azure_mai.Configuration(
+            endpoint=self.mai_endpoint_ctrl.GetValue().strip().rstrip("/"),
+            region=self.mai_region_ctrl.GetValue().strip(),
+            enabled=self.chk_mai_enabled.GetValue(),
+            has_key=bool(self._entered_key("azure-mai")
+                         or keystore_load(self.app, "azure-mai")),
+        )
+        problems = pending.problems()
+        if problems:
+            self.mai_status.SetLabel(" ".join(problems))
+            return
+        self.mai_status.SetLabel(
+            pending.region_warning()
+            or "Ready. MAI-Transcribe will appear in the model picker.")
 
     def _build_keys_box(self) -> wx.StaticBoxSizer:
         """One masked field per cloud provider.
@@ -712,6 +885,26 @@ class SettingsDialog(wx.Dialog):
         if 0 <= index < len(directory_mod.STOREFRONTS):
             settings.itunes_country = directory_mod.STOREFRONTS[index][0]
         settings.search_limit = self.search_limit_ctrl.GetValue()
+
+        from podharvest import azure_mai
+
+        settings.azure_mai_enabled = self.chk_mai_enabled.GetValue()
+        settings.azure_speech_endpoint = (
+            self.mai_endpoint_ctrl.GetValue().strip().rstrip("/"))
+        settings.azure_speech_region = self.mai_region_ctrl.GetValue().strip()
+        languages = [code for code, _label in azure_mai.LANGUAGES]
+        index = self.mai_language_choice.GetSelection()
+        if 0 <= index < len(languages):
+            settings.mai_language = languages[index]
+        styles = [code for code, _label in azure_mai.STYLES]
+        index = self.mai_style_choice.GetSelection()
+        if 0 <= index < len(styles):
+            settings.mai_transcribe_style = styles[index]
+        settings.mai_diarize = self.chk_mai_diarize.GetValue()
+        settings.mai_word_timestamps = self.chk_mai_words.GetValue()
+        settings.mai_phrases = [
+            term.strip() for term in self.mai_phrases_ctrl.GetValue().split(",")
+            if term.strip()]
 
 
 def _rates_text(rates) -> str:
@@ -2590,7 +2783,8 @@ class MainFrame(wx.Frame):
     def _refresh_cloud_availability(self) -> None:
         """Work out which cloud models could run, then re-offer the choices."""
         from podharvest import cloud as cloud_mod
-        self._cloud_models = cloud_mod.available_cloud_models(self.app_space, kind="asr")
+        self._cloud_models = cloud_mod.available_cloud_models(
+            self.app_space, kind="asr", settings=self.settings)
         self._refresh_source_options()
 
     def _refresh_source_options(self) -> None:

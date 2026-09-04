@@ -458,6 +458,61 @@ GPU is not available. See `bench/comparison-report.md` for the generated report 
 
 No reference transcript handy? Use `--reference "some text"` to apply the same reference to every file (useful for repeated clips of one recording), or generate a pseudo-reference with a larger/slower model first and benchmark faster models against it, as shown above.
 
+## Azure MAI-Transcribe-2 (preview)
+
+Microsoft's MAI-Transcribe-2 through the Azure Fast Transcription API, for
+English and Spanish. It labels speakers and returns word-level timings in the
+same request, and takes a list of terms to bias recognition towards -- worth
+setting for a show with recurring guests, where every engine mangles the same
+handful of names.
+
+Implemented from `MAI-TRANSCRIBE-2-PRD.md`, and its preview posture is the
+design rather than a caveat:
+
+- **Off until you turn it on**, and it stays off across updates. A key left
+  over from trying it once does not put a preview service back in the picker.
+- **Never a default and never a silent fallback.** Unticking one box removes
+  it from the model list immediately, which is the quick way out if the
+  preview regresses.
+- **No price or speed is claimed.** Microsoft has not published a MAI-specific
+  rate, so podHarvest shows none rather than a confident wrong number.
+- **The API version is a setting**, pinned rather than floating, so a change
+  to a preview API can be answered without waiting for a new release.
+- **It does not degrade silently.** If speaker labels or word timings were
+  asked for and did not come back, the log says so.
+
+### What it needs
+
+Azure wants more than a key: the endpoint of *your* Speech resource and a
+region that offers the model. **Settings ▸ Azure MAI-Transcribe** asks for
+both, and **Check this is set up** names everything still missing at once --
+switch, key, endpoint, region -- rather than letting you discover them one
+failed request at a time. It sends nothing to Azure; it is a configuration
+check, not a connection test.
+
+| Setting | Meaning |
+|---|---|
+| `azure_mai_enabled` | The switch. Off by default |
+| `azure_speech_endpoint` | `https://your-resource.cognitiveservices.azure.com` |
+| `azure_speech_region` | Microsoft lists `eastus`, `northeurope`, `southeastasia`, `westus`. Another region is warned about, not refused -- availability changes |
+| `azure_speech_api_version` | Pinned; default `2025-10-15` |
+| `mai_language` | `auto`, `en` or `es`. Automatic sends no locale at all, because a strong hint towards the wrong language is worse than none |
+| `mai_transcribe_style` | `clean` reads well; `verbatim` keeps every false start |
+| `mai_diarize` | Ask for speaker labels |
+| `mai_word_timestamps` | Word-level rather than phrase-level timings |
+| `mai_phrases` | Terms to bias towards. Hints, not substitutions |
+
+The key goes in the operating system's credential store with every other
+provider's, never in the settings file.
+
+### Reliability
+
+Throttling, gateway errors and timeouts are retried with exponential backoff,
+up to four attempts. Nothing else is: a bad key, a wrong region, malformed
+audio or an oversized file all give the same answer more slowly the second
+time, so they fail at once. Audio over Azure's documented limit is refused
+before the upload starts rather than after it.
+
 ## Optional cloud models
 
 podHarvest runs entirely on your machine by default and needs no account with anyone. If you
@@ -573,6 +628,37 @@ changing it would break something:
 | The repository URL | Already published |
 
 In code, `podharvest.DISPLAY_NAME` holds the spoken form so it is defined once.
+
+## Checking every model downloads
+
+`scripts/check_model_downloads.py` downloads every model in the catalogue and
+checks each one three ways: it arrives, `verify_model` accepts it, and
+`is_downloaded` still says yes on a *second* look from the manifest -- which
+is the check that used to fail, because the download verified a list it had
+just built while everything afterwards read the manifest instead.
+
+It is not a unit test. It talks to Hugging Face and Alphacephei, moves tens of
+gigabytes, and takes about an hour. It exists because the interesting failures
+in model acquisition are exactly the ones a mocked test cannot see: the bug
+that prompted it -- a healthy download rejected as "missing or truncated
+.gitignore" -- passed every unit test in the suite.
+
+```bash
+PODHARVEST_HOME=S:/model-test python scripts/check_model_downloads.py
+PODHARVEST_HOME=S:/model-test python scripts/check_model_downloads.py --only vosk
+PODHARVEST_HOME=S:/model-test python scripts/check_model_downloads.py --max-gb 2
+```
+
+Point `PODHARVEST_HOME` at somewhere with room; the whole catalogue is about
+37 GB before deduplication.
+
+### Last full run
+
+All 20 models in the catalogue downloaded and verified: 8 faster-whisper, 2
+Parakeet, 1 Parakeet-ONNX, 1 NeMo Canary, 2 Vosk, 2 Moonshine and 4 llama-cpp
+enrichment models. That covers all seven distinct routes through `acquire` --
+whole-repo snapshot, single named file, zip archive, the ONNX triple-file
+layout, and the three verification branches they land in.
 
 ## Checking an install
 

@@ -34,10 +34,10 @@ from podharvest.keystore import load_key, redact
 from podharvest.util import LOG, HarvestError, spoken_duration
 
 #: Providers that can turn audio into text.
-TRANSCRIBE_PROVIDERS = ("openai", "gemini")
+TRANSCRIBE_PROVIDERS = ("openai", "gemini", "azure-mai")
 #: Providers that can write summaries and chapter markers from a transcript.
 SUMMARY_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud")
-ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud")
+ALL_PROVIDERS = ("openai", "gemini", "openrouter", "ollama-cloud", "azure-mai")
 
 
 #: When the hardcoded prices below were last checked against each provider's
@@ -61,6 +61,14 @@ class Provider:
     #: True when the provider publishes prices through its API, so podharvest
     #: can read them at runtime instead of trusting a constant.
     live_pricing: bool = False
+    #: True when a key is not enough: Azure also needs the endpoint of your own
+    #: resource and a region, so the key test has more to check and Settings
+    #: has more to ask for.
+    needs_endpoint: bool = False
+    #: True while the service is in preview. Preview means the shape of the
+    #: API and the price can both change without notice, so it is said out
+    #: loud wherever the provider is offered rather than discovered later.
+    preview: bool = False
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -83,6 +91,14 @@ PROVIDERS: dict[str, Provider] = {
         "speech-to-text endpoint.",
         can_transcribe=False, can_summarise=True,
         pricing_url="https://openrouter.ai/models", live_pricing=True),
+    "azure-mai": Provider(
+        "azure-mai", "Azure MAI-Transcribe",
+        "https://portal.azure.com/#browse/Microsoft.CognitiveServices%2Faccounts",
+        "The key from your own Azure Speech resource. Also needs that "
+        "resource's endpoint and region, which Settings asks for.",
+        can_transcribe=True, can_summarise=False,
+        pricing_url="https://azure.microsoft.com/pricing/details/speech/",
+        live_pricing=False, needs_endpoint=True, preview=True),
     "ollama-cloud": Provider(
         "ollama-cloud", "Ollama Cloud",
         "https://ollama.com/settings/keys",
@@ -130,6 +146,23 @@ CLOUD_ASR_CHOICES: list[ModelChoice] = [
         notes="Measured 2.8% word error rate, the best of the OpenAI models tested. The "
               "only one that returns timestamps, so pick this one if you want chapter "
               "markers or subtitle files from OpenAI."),
+    ModelChoice(
+        "cloud", "MAI-Transcribe-2", 0.0,
+        "Azure MAI-Transcribe-2 - English and Spanish, preview",
+        location="cloud", provider="azure-mai", speed_x=0.0,
+        speed_measured=False, cost_per_audio_minute=0.0,
+        license="commercial", speakers_built_in=True, provides_timestamps=True,
+        notes="Microsoft's MAI-Transcribe-2 through Azure Fast Transcription. "
+              "English and Spanish only, detected automatically or told which. "
+              "Labels speakers and returns word-level timings in the same "
+              "pass, and takes a list of names and terms to bias recognition "
+              "towards, which is worth setting for a show with recurring "
+              "guests. Needs your own Azure Speech resource: a key, its "
+              "endpoint and a region that offers MAI. It is a preview "
+              "service, so it is switched off until you turn it on, its price "
+              "is not published in Azure's public table, and both the price "
+              "and the API can change without notice. No speed or accuracy "
+              "figure is shown because none has been measured here."),
     ModelChoice(
         "cloud", "gemini-2.5-flash", 0.0,
         "Google Gemini Flash - names the speakers, cloud",
@@ -184,10 +217,33 @@ CLOUD_SUMMARY_CHOICES: list[ModelChoice] = [
 ]
 
 
-def available_cloud_models(app, *, kind: str = "asr") -> list[ModelChoice]:
-    """Cloud models whose provider has a key configured. Empty when none has."""
+def available_cloud_models(app, *, kind: str = "asr",
+                           settings=None) -> list[ModelChoice]:
+    """Cloud models whose provider has a key configured. Empty when none has.
+
+    A preview provider needs more than a key: it has to have been switched on.
+    Azure MAI is off by default and stays off across updates, so a key left
+    over from trying it once does not put a preview service back in the picker
+    behind somebody's back.
+    """
     pool = CLOUD_ASR_CHOICES if kind == "asr" else CLOUD_SUMMARY_CHOICES
-    return [c for c in pool if load_key(app, c.provider)]
+    if settings is None:
+        try:
+            from podharvest import config as config_mod
+
+            settings = config_mod.load(app)
+        except Exception:  # noqa: BLE001 - no settings means no opt-in
+            settings = None
+
+    def offered(choice: ModelChoice) -> bool:
+        if not load_key(app, choice.provider):
+            return False
+        provider = PROVIDERS.get(choice.provider)
+        if provider is not None and provider.preview:
+            return bool(getattr(settings, "azure_mai_enabled", False))
+        return True
+
+    return [c for c in pool if offered(c)]
 
 
 def cloud_is_available(app) -> bool:
@@ -331,6 +387,33 @@ def _multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[byt
     for name, value in fields.items():
         out += f"--{boundary}\r\n".encode()
         out += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        out += f"{value}\r\n".encode()
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    out += f"--{boundary}\r\n".encode()
+    out += (f'Content-Disposition: form-data; name="{file_field}"; '
+            f'filename="{path.name}"\r\n').encode()
+    out += f"Content-Type: {mime}\r\n\r\n".encode()
+    out += path.read_bytes()
+    out += f"\r\n--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
+
+
+def _multipart_with_json(json_fields: dict[str, str], file_field: str,
+                         path: Path) -> tuple[bytes, str]:
+    """A multipart body whose text parts are declared as JSON.
+
+    Azure's Fast Transcription API wants its `definition` part typed
+    `application/json`. `_multipart` sends text parts untyped, which most APIs
+    accept and Azure rejects -- so this is a near-copy rather than a flag on
+    that one, because the difference is a single header and conflating them
+    would make both harder to read than keeping them apart.
+    """
+    boundary = "----podharvest" + str(int(time.time() * 1000))
+    out = bytearray()
+    for name, value in json_fields.items():
+        out += f"--{boundary}\r\n".encode()
+        out += f'Content-Disposition: form-data; name="{name}"\r\n'.encode()
+        out += b"Content-Type: application/json\r\n\r\n"
         out += f"{value}\r\n".encode()
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     out += f"--{boundary}\r\n".encode()
@@ -560,6 +643,10 @@ def build_cloud_engine(app, choice: ModelChoice):
         return OpenAITranscribeEngine(app, choice)
     if choice.provider == "gemini":
         return GeminiTranscribeEngine(app, choice)
+    if choice.provider == "azure-mai":
+        from podharvest.azure_mai import AzureMaiTranscribeEngine
+
+        return AzureMaiTranscribeEngine(app, choice)
     label = PROVIDERS[choice.provider].label if choice.provider in PROVIDERS else choice.provider
     raise HarvestError(
         f"{label} does not offer speech-to-text. Pick an OpenAI or Gemini model, "

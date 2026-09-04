@@ -702,3 +702,86 @@ class TestDoctorTellsProblemsFromNormality:
         source = self._source()
         assert "Nothing is broken." in source
         assert "No problems found" not in source
+
+
+class TestWhereEachKindOfModelLives:
+    """One answer to "where is this model", for every kind of model.
+
+    `acquire_enrichment_model` writes to `models/enrichment/`, but `_model_dir`
+    only knew about engines and answered `models/llama-cpp/`. So
+    `is_downloaded()` said no about every enrichment model that had in fact
+    been downloaded -- permanently, no matter how many times you fetched it.
+    Nothing asked that question yet, which is the only reason it had not
+    surfaced. It was a bug waiting for a caller.
+    """
+
+    def _app(self, tmp_path):
+        from podharvest.appspace import AppSpace
+
+        return AppSpace(tmp_path).ensure()
+
+    def _enrichment(self):
+        from podharvest.hardware import ENRICHMENT_CHOICES
+
+        return ENRICHMENT_CHOICES[0]
+
+    def test_an_enrichment_model_is_found_where_it_is_written(self, tmp_path):
+        from podharvest import acquire
+
+        app = self._app(tmp_path)
+        choice = self._enrichment()
+        assert acquire._model_dir(app, choice) == (
+            app.models_dir / "enrichment" / choice.model)
+
+    def test_the_writer_and_the_reader_agree(self, tmp_path):
+        """They used to disagree, which is the whole failure."""
+        import inspect
+
+        from podharvest import acquire
+
+        source = inspect.getsource(acquire.acquire_enrichment_model)
+        assert "_model_dir(app, choice)" in source
+        assert 'models_dir / "enrichment"' not in source, (
+            "the path is spelled once, in _model_dir")
+
+    def test_is_downloaded_can_say_yes_about_an_enrichment_model(self, tmp_path):
+        from podharvest import acquire
+
+        app = self._app(tmp_path)
+        choice = self._enrichment()
+        model_dir = acquire._model_dir(app, choice)
+        model_dir.mkdir(parents=True)
+        # A plausible GGUF: the magic bytes, and big enough to pass the floor.
+        weights = model_dir / choice.filename
+        weights.write_bytes(acquire.GGUF_MAGIC + b"\0" * 4096)
+        acquire._write_manifest(model_dir, choice, [choice.filename])
+        assert acquire.is_downloaded(app, choice) is True
+
+    def test_every_asr_engine_still_lands_where_it_did(self, tmp_path):
+        from podharvest import acquire
+        from podharvest.hardware import ASR_CATALOGUE
+
+        app = self._app(tmp_path)
+        expected = {
+            "faster-whisper": app.whisper_models_dir,
+            "parakeet": app.parakeet_models_dir,
+            "nemo-canary": app.parakeet_models_dir,
+            "parakeet-onnx": app.parakeet_models_dir / "onnx",
+            "vosk": app.models_dir / "vosk",
+            "moonshine": app.models_dir / "moonshine",
+        }
+        for engine, choices in ASR_CATALOGUE.items():
+            for choice in choices:
+                assert acquire._model_dir(app, choice) == (
+                    expected[engine] / choice.model), engine
+
+    def test_no_two_models_share_a_folder(self, tmp_path):
+        """A shared folder would have one model verifying against another."""
+        from podharvest import acquire
+        from podharvest.hardware import ASR_CATALOGUE, ENRICHMENT_CHOICES
+
+        app = self._app(tmp_path)
+        everything = [c for choices in ASR_CATALOGUE.values() for c in choices]
+        everything += list(ENRICHMENT_CHOICES)
+        dirs = [acquire._model_dir(app, c) for c in everything]
+        assert len(dirs) == len(set(dirs))
