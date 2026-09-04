@@ -106,6 +106,16 @@ First public release.
   titles, dates, lengths, and whether each episode has audio or a published
   transcript -- without downloading anything. The way to see what a show has
   before deciding to harvest it.
+- **Import a list of podcasts** (Ctrl+Shift+I). Reads an OPML file -- the
+  format podcast apps use to hand each other a list of shows -- and shows it
+  as a tick list. "Tick the new ones" skips anything already in your
+  favourites. A button loads the ACB Media network's real public list, because
+  "find an OPML file" is not a useful instruction to somebody who has never
+  seen one. The parsing rules come from QUILL Cast's importer, including the
+  awkward parts: a parked `isComment` entry is skipped rather than quietly
+  switched back on, folders are remembered, and duplicates are removed by the
+  same rule favourites use. A DOCTYPE or a plain-HTTP address is refused
+  rather than parsed. Importing adds bookmarks; it subscribes to nothing.
 - **Favourite podcasts** (Ctrl+Shift+K). Mark a show, come back to it later.
   Bookmarks rather than subscriptions, and the difference is the design:
   nothing polls, schedules, notifies or downloads, and a test asserts the

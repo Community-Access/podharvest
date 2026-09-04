@@ -62,6 +62,26 @@ harvested from that show stays exactly where it is. The list is a plain JSON
 file in your app space, so it travels with a portable install and can be read
 or edited without podHarvest.
 
+## Importing a list of podcasts
+
+If you already have a list — exported from another podcast app, or published
+by a network — **Ctrl+Shift+I** reads it. OPML is the format apps use to hand
+each other a list of shows, and every podcast app can export one.
+
+The window shows what is in the list with a tick box against each show. **Tick
+the new ones** ticks only what is not already in your favourites, which is what
+you want when re-reading a list you have imported before. **Add ticked to
+favourites** saves them; **Use this one now** takes a single show straight to
+the main window instead.
+
+There is a **Try the ACB Media network** button, because "find an OPML file"
+is not a useful instruction when you have never seen one. It loads a real,
+public list of 41 shows.
+
+**Importing is not subscribing.** It adds bookmarks. Nothing is checked for new
+episodes, nothing is downloaded, and nothing happens on a schedule — what you
+harvest from the list is a separate decision you make afterwards.
+
 ## Two ways in: a feed, or files you already have
 
 At the top of the window is **Source**, a pair of radio buttons:
@@ -358,6 +378,7 @@ anywhere in the program. You do not have to remember the rest of this table — 
 | F6 | Go to the status bar (F6 or Escape comes back) |
 | Ctrl+K | Find a podcast |
 | Ctrl+Shift+K | Favourite podcasts |
+| Ctrl+Shift+I | Import a list of podcasts (OPML) |
 | Ctrl+Shift+E | Show the episodes in this feed |
 | Ctrl+O | Add local files |
 | Ctrl+Shift+F | Add a local folder |

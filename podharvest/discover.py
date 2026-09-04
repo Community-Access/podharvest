@@ -5,6 +5,8 @@ its episodes" without leaving podHarvest or hunting for a feed address.
 
 * `SearchDialog` -- search Apple's directory, see what came back, take a feed.
 * `FavoritesDialog` -- the shows you marked, to come back to.
+* `OpmlImportDialog` -- read a list of shows out of an OPML file and tick the
+  ones worth keeping. Importing adds bookmarks; it does not subscribe.
 * Browsing itself lives on the main window: it reads a feed and lists the
   episodes without downloading anything.
 
@@ -22,6 +24,7 @@ import wx
 from podharvest import directory as directory_mod
 from podharvest import favorites as favorites_mod
 from podharvest import help as help_mod
+from podharvest import opml as opml_mod
 from podharvest.a11y import set_accessible_name, size_for_text
 from podharvest.util import LOG
 
@@ -442,3 +445,303 @@ class FavoritesDialog(wx.Dialog):
         self.status.SetLabel(message)
         if not changed:
             wx.Bell()
+
+
+class OpmlImportDialog(wx.Dialog):
+    """Read a list of podcasts, tick the ones worth keeping.
+
+    A checklist rather than an all-or-nothing import, because a network OPML
+    is forty shows and almost nobody wants all forty. Ticking is the whole
+    interaction: everything ticked goes to favourites, and one highlighted
+    show can be taken straight to the main window instead.
+
+    Importing here adds bookmarks. It does not subscribe to anything, check
+    anything, or download anything.
+    """
+
+    def __init__(self, parent, app_space, settings) -> None:
+        super().__init__(parent, title="Import a list of podcasts",
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        help_mod.install(self)
+        self.app_space = app_space
+        self.settings = settings
+        self.chosen: object | None = None
+        self._shows: list = []
+        self._worker: threading.Thread | None = None
+        self._alive = True
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(wx.StaticText(
+            self,
+            label="An OPML file is how podcast apps hand each other a list of shows.\n"
+                  "Importing one adds bookmarks: nothing is subscribed to, checked or\n"
+                  "downloaded."), 0, wx.ALL, 10)
+
+        # -- where the list is -------------------------------------------
+        source_row = wx.BoxSizer(wx.HORIZONTAL)
+        source_row.Add(wx.StaticText(self, label="&List address or file:"), 0,
+                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.source_ctrl = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.source_ctrl.SetToolTip(
+            "The web address of an OPML list, or the path to one on this "
+            "machine. Press Enter to read it. Web addresses must be https: a "
+            "list of feeds that can be rewritten in transit is one that can "
+            "point podHarvest somewhere else."
+        )
+        self.source_ctrl.SetHint("https://example.com/podcasts.opml")
+        set_accessible_name(self.source_ctrl, "List address or file")
+        self.source_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self.on_read())
+        source_row.Add(self.source_ctrl, 1, wx.RIGHT, 6)
+
+        browse_btn = wx.Button(self, label="&Browse...")
+        browse_btn.SetToolTip("Choose an OPML file already on this machine.")
+        browse_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_browse())
+        source_row.Add(browse_btn, 0, wx.RIGHT, 6)
+
+        self.read_btn = wx.Button(self, label="&Read the list")
+        self.read_btn.SetToolTip("Reads the list and shows what is in it. "
+                                 "Nothing is added until you say so.")
+        self.read_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_read())
+        source_row.Add(self.read_btn, 0)
+        root.Add(source_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+
+        example_btn = wx.Button(
+            self, label=f"Try the &{opml_mod.EXAMPLE_NAME}")
+        example_btn.SetToolTip(
+            "Fills in a real, public network list, so there is something to "
+            "try when you do not have an OPML file to hand."
+        )
+        example_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_example())
+        root.Add(example_btn, 0, wx.ALL, 10)
+
+        self.status = wx.StaticText(
+            self, label="Give a list address or choose a file, then press Enter.")
+        set_accessible_name(self.status, "Import status")
+        root.Add(self.status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # -- what is in it ------------------------------------------------
+        root.Add(wx.StaticText(self, label="&Shows in this list:"), 0,
+                 wx.LEFT | wx.RIGHT, 10)
+        self.list = wx.CheckListBox(self, choices=[])
+        self.list.SetToolTip(
+            "Every show in the list. Space ticks the one you are on; Enter "
+            "takes it straight to the main window instead. Tick the ones you "
+            "want and press Add ticked to favourites."
+        )
+        set_accessible_name(self.list, "Shows in this list")
+        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda _e: self.on_use())
+        self.list.Bind(wx.EVT_LISTBOX, lambda _e: self._on_selected())
+        root.Add(self.list, 1, wx.EXPAND | wx.ALL, 10)
+
+        self.detail = wx.TextCtrl(
+            self, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        self.detail.SetToolTip(
+            "What the list says about the highlighted show, including its "
+            "feed address. Read-only.")
+        set_accessible_name(self.detail, "About the highlighted show")
+        size_for_text(self.detail, lines=4)
+        root.Add(self.detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # -- ticking ------------------------------------------------------
+        tick_row = wx.BoxSizer(wx.HORIZONTAL)
+        for label, handler, tip in (
+            ("Tick &all", self.on_tick_all,
+             "Ticks every show in the list."),
+            ("Tick &none", self.on_tick_none,
+             "Unticks everything, to start again."),
+            ("Tick the &new ones", self.on_tick_new,
+             "Ticks only the shows that are not already in your favourites, "
+             "which is what you usually want when re-reading a list you have "
+             "imported before."),
+        ):
+            button = wx.Button(self, label=label)
+            button.SetToolTip(tip)
+            button.Bind(wx.EVT_BUTTON, lambda _e, h=handler: h())
+            tick_row.Add(button, 0, wx.RIGHT, 6)
+        root.Add(tick_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        # -- actions ------------------------------------------------------
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.add_btn = wx.Button(self, label="Add ticked to &favourites")
+        self.add_btn.SetToolTip(
+            "Saves every ticked show as a favourite. Bookmarks only: nothing "
+            "is checked for new episodes and nothing is downloaded."
+        )
+        self.add_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_add())
+        self.add_btn.Enable(False)
+        row.Add(self.add_btn, 0, wx.RIGHT, 6)
+
+        self.use_btn = wx.Button(self, wx.ID_OK, label="&Use this one now")
+        self.use_btn.SetToolTip(
+            "Takes the highlighted show's feed back to the main window, "
+            "without saving it as a favourite.")
+        self.use_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_use())
+        self.use_btn.Enable(False)
+        row.Add(self.use_btn, 0, wx.RIGHT, 12)
+
+        close_btn = wx.Button(self, wx.ID_CANCEL, label="Close")
+        close_btn.SetToolTip("Closes this window.")
+        row.AddStretchSpacer()
+        row.Add(close_btn, 0)
+        root.Add(row, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetEscapeId(wx.ID_CANCEL)
+        self.SetSizer(root)
+        self.SetMinSize(wx.Size(760, 620))
+        self.Fit()
+        self.CentreOnParent()
+        self.source_ctrl.SetFocus()
+        self.Bind(wx.EVT_CLOSE, self._on_close)
+
+    # -- reading ---------------------------------------------------------
+
+    def on_example(self) -> None:
+        self.source_ctrl.SetValue(opml_mod.EXAMPLE_URL)
+        self.on_read()
+
+    def on_browse(self) -> None:
+        with wx.FileDialog(
+            self, "Choose an OPML file",
+            wildcard="Podcast lists (*.opml;*.xml)|*.opml;*.xml|All files|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            self.source_ctrl.SetValue(dlg.GetPath())
+        self.on_read()
+
+    def on_read(self) -> None:
+        """Read the list on a worker thread, so the window stays alive."""
+        source = self.source_ctrl.GetValue().strip()
+        if not source:
+            self.status.SetLabel("Give a list address or choose a file first.")
+            self.source_ctrl.SetFocus()
+            return
+        if self._worker is not None and self._worker.is_alive():
+            return
+        self.read_btn.Disable()
+        self.status.SetLabel(f"Reading {source}...")
+        self._worker = threading.Thread(
+            target=self._run_read, args=(source,), daemon=True)
+        self._worker.start()
+
+    def _run_read(self, source: str) -> None:
+        try:
+            shows = opml_mod.without_duplicates(
+                opml_mod.load(source, settings=self.settings))
+            error = ""
+        except opml_mod.OpmlError as exc:
+            shows, error = [], str(exc)
+        except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
+            shows, error = [], str(exc)
+            LOG.exception("Reading that list failed: %s", exc)
+        wx.CallAfter(self._show_list, shows, error)
+
+    def _show_list(self, shows, error: str) -> None:
+        if not self._alive:
+            return
+        self.read_btn.Enable()
+        self._shows = list(shows)
+        self.list.Set([self._label(s) for s in self._shows])
+        self.add_btn.Enable(bool(self._shows))
+        if error:
+            self.status.SetLabel(error)
+        elif not self._shows:
+            self.status.SetLabel(
+                "That list has no podcasts in it. It may be an outline of "
+                "something else, or its entries may have no feed addresses.")
+        else:
+            self.status.SetLabel(
+                f"{len(self._shows)} show(s). Space ticks the one you are on; "
+                "Tick the new ones skips what you already have.")
+            self.on_tick_new()
+            self.list.SetSelection(0)
+            self.list.SetFocus()
+        self._on_selected()
+
+    def _label(self, show) -> str:
+        return f"{show.title} - {show.summary()}" if show.summary() else show.title
+
+    # -- ticking ---------------------------------------------------------
+
+    def on_tick_all(self) -> None:
+        self.list.SetCheckedItems(range(len(self._shows)))
+        self._say_ticked()
+
+    def on_tick_none(self) -> None:
+        self.list.SetCheckedItems([])
+        self._say_ticked()
+
+    def on_tick_new(self) -> None:
+        """Tick only what is not already a favourite."""
+        from podharvest import favorites as favorites_mod
+
+        existing = favorites_mod.load(self.app_space)
+        wanted = [index for index, show in enumerate(self._shows)
+                  if not favorites_mod.contains(existing, show.feed_url)]
+        self.list.SetCheckedItems(wanted)
+        already = len(self._shows) - len(wanted)
+        note = f" {already} already in your favourites." if already else ""
+        self.status.SetLabel(f"{len(wanted)} ticked.{note}")
+
+    def _say_ticked(self) -> None:
+        self.status.SetLabel(f"{len(self.list.GetCheckedItems())} ticked.")
+
+    # -- acting ----------------------------------------------------------
+
+    def selected(self):
+        index = self.list.GetSelection()
+        return self._shows[index] if 0 <= index < len(self._shows) else None
+
+    def _on_selected(self) -> None:
+        show = self.selected()
+        self.use_btn.Enable(show is not None)
+        if show is None:
+            self.detail.SetValue("")
+            return
+        lines = [show.title]
+        if show.folder:
+            lines.append(f"In: {show.folder}")
+        if show.description:
+            lines.append(show.description)
+        lines.append(f"Feed: {show.feed_url}")
+        if show.homepage:
+            lines.append(f"Page: {show.homepage}")
+        self.detail.SetValue("\n".join(lines))
+        self.detail.SetInsertionPoint(0)
+
+    def on_add(self) -> None:
+        """Save every ticked show as a favourite."""
+        from podharvest import favorites as favorites_mod
+
+        ticked = [self._shows[i] for i in self.list.GetCheckedItems()]
+        if not ticked:
+            self.status.SetLabel("Nothing is ticked. Space ticks the show you "
+                                 "are on.")
+            self.list.SetFocus()
+            return
+        added = skipped = 0
+        for show in ticked:
+            favorite = favorites_mod.Favorite(
+                title=show.title, feed_url=show.feed_url,
+                homepage=show.homepage)
+            changed, _message = favorites_mod.add(self.app_space, favorite)
+            if changed:
+                added += 1
+            else:
+                skipped += 1
+        note = f" {skipped} were already there." if skipped else ""
+        message = f"Added {added} to your favourites.{note}"
+        self.status.SetLabel(message)
+        LOG.info("%s", message)
+
+    def on_use(self) -> None:
+        show = self.selected()
+        if show is None:
+            return
+        self.chosen = show
+        self.EndModal(wx.ID_OK)
+
+    def _on_close(self, event) -> None:
+        self._alive = False
+        event.Skip()

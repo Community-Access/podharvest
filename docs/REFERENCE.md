@@ -192,6 +192,36 @@ promising what you have would be wrong in every row. The transport is switched
 off for the same reason. The episode filter is applied here too, so what the
 list shows is what Start would actually take.
 
+### Importing an OPML list
+
+`podharvest.opml` reads the format podcast apps use to exchange lists of
+shows. The parsing rules come from QUILL Cast's importer
+(`quill/core/podcasts/opml.py`), so both programs read the same files the same
+way -- including the parts of the format that are easy to get wrong:
+
+- `isComment="true"` means the author parked that entry, and the spec says to
+  skip it. Importing one turns somebody's disabled feed back on behind their
+  back. Only the literal `"true"` counts; the attribute is a string.
+- An outline with no `xmlUrl` is a folder, not a show. Its name joins the
+  folder path of everything under it.
+- `title` beats `text`, and the feed address is the last resort, so a row is
+  never blank.
+- `description` is OPML's spelling and `summary` is what some exporters write.
+  Whichever is present is taken.
+- `category` is kept verbatim rather than split, because OPML allows both it
+  and nested outlines, and splitting loses the difference between one category
+  written `/News/Local` and two separate ones.
+
+Duplicates are removed by feed address -- case-folded, trailing slash ignored
+-- which is the same rule the favourites list uses, so a show imported here and
+one added there are recognised as the same show.
+
+**Refused rather than parsed:** a document carrying a `DOCTYPE` (the doorway to
+entity-expansion and external-entity attacks; no genuine podcast list has one),
+a list fetched over plain HTTP (a list of feed addresses that can be rewritten
+in transit is one that can point podHarvest somewhere else), and a file larger
+than 16 MB.
+
 ### Favourites
 
 `podharvest.favorites` keeps a list in `<app-space>/config/favorites.json`,

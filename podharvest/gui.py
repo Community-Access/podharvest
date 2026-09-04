@@ -1048,6 +1048,9 @@ class MainFrame(wx.Frame):
         self._menu_add_favorite = file_menu.Append(
             wx.ID_ANY, "Add this feed to favou&rites",
             "Remember the feed address currently in the box")
+        self._menu_import_opml = file_menu.Append(
+            wx.ID_ANY, "&Import a list of podcasts...	Ctrl+Shift+I",
+            "Read an OPML list and pick which shows to keep")
         file_menu.AppendSeparator()
         self._menu_browse = file_menu.Append(
             wx.ID_ANY, "Show &episodes in this feed\tCtrl+Shift+E",
@@ -1172,6 +1175,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self._on_find_podcast, self._menu_find)
         self.Bind(wx.EVT_MENU, self._on_favorites, self._menu_favorites)
         self.Bind(wx.EVT_MENU, self._on_add_favorite, self._menu_add_favorite)
+        self.Bind(wx.EVT_MENU, self._on_import_opml, self._menu_import_opml)
         self.Bind(wx.EVT_MENU, self._on_browse_feed, self._menu_browse)
         self.Bind(wx.EVT_MENU, self._on_add_files, self._menu_add_files)
         self.Bind(wx.EVT_MENU, self._on_add_folder, self._menu_add_folder)
@@ -1536,6 +1540,7 @@ class MainFrame(wx.Frame):
             "  Esc           Cancel\n"
             "  Ctrl+K        Find a podcast\n"
             "  Ctrl+Shift+K  Favourite podcasts\n"
+            "  Ctrl+Shift+I  Import a list of podcasts\n"
             "  Ctrl+Shift+E  Show the episodes in this feed\n"
             "  Ctrl+O        Add local files\n"
             "  Ctrl+Shift+F  Add a local folder\n"
@@ -2213,6 +2218,25 @@ class MainFrame(wx.Frame):
         LOG.info("%s", message)
 
     # -- browsing a feed ---------------------------------------------------
+
+    def _on_import_opml(self, _evt=None) -> None:
+        """Read a list of podcasts and take whatever was chosen from it."""
+        from podharvest.discover import OpmlImportDialog
+
+        dlg = OpmlImportDialog(self, self.app_space, self.settings)
+        try:
+            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+                return
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        if not self.uses_a_feed():
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
+            self._apply_source_mode()
+        self.url_ctrl.SetValue(chosen.feed_url)
+        self._browsed_title = chosen.title
+        LOG.info("Chose '%s' from the imported list.", chosen.title)
+        self.browse_btn.SetFocus()
 
     def _on_browse_feed(self, _evt=None) -> None:
         """Read the feed and list its episodes, downloading nothing."""
