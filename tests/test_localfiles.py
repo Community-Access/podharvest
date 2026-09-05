@@ -346,6 +346,24 @@ class TestSettings:
         assert settings.local_transcripts_beside_file is True
         assert settings.local_recurse_folders is True
 
+    def test_every_source_mode_survives_being_saved(self):
+        """The validator's set and the radio's list must not drift.
+
+        `from_dict` silently rewrites an unknown mode to "feed", so a mode
+        added to the radio but forgotten here means the window opens on the
+        wrong source with nothing said about why. That happened once.
+        """
+        pytest.importorskip("wx")
+        from podharvest.config import Settings
+        from podharvest.gui import _SOURCE_MODES
+
+        for mode in _SOURCE_MODES:
+            settings = Settings()
+            settings.source_mode = mode
+            assert Settings.from_dict(settings.to_dict()).source_mode == mode, (
+                f"'{mode}' is in the Source radio but not in the set "
+                f"config.Settings.from_dict validates against")
+
     def test_a_nonsense_source_mode_falls_back_to_feed(self):
         from podharvest.config import Settings
 

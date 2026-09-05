@@ -218,7 +218,11 @@ class Settings:
             setattr(settings, name, max(1_000, min(300_000, value)))
         settings.remember_playback_position = bool(settings.remember_playback_position)
         settings.playback_rates = clean_rates(settings.playback_rates)
-        if settings.source_mode not in {"find", "feed", "local"}:
+        # Kept in step with gui._SOURCE_MODES by the test in
+        # tests/test_localfiles.py. A mode missing from this set is silently
+        # rewritten to "feed" on load, so the window would open on the wrong
+        # source with nothing to say why.
+        if settings.source_mode not in {"find", "feed", "opml", "local"}:
             settings.source_mode = "feed"
         from podharvest.azure_mai import DEFAULT_API_VERSION, LANGUAGES, STYLES
 
