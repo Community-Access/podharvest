@@ -43,6 +43,57 @@ First public release.
   vetted, so the family offers the same choices everywhere.
   docs/CODE-REVIEW-2026-09.md records what was considered and not added.
 
+### Added (finding a moment, and being told things)
+
+- **Search, then hear it.** Ctrl+Shift+S results now carry a time, and
+  choosing one cues the player at the phrase before the transcript opens.
+  In the reader, Control+Enter plays from wherever the caret is.
+- **Save a passage as a clip.** Select some transcript and get exactly that
+  audio, with short fades and a filename made from the words that were
+  said. The usual way to make a clip is to drag across a waveform, which is
+  no way at all if you cannot see one.
+- **Place a chapter by phrase.** The chapter editor takes words from the
+  transcript and moves the playhead to where they were said. Nudging by ear
+  stays for the last half second.
+- **Follow the playhead while reading** -- off unless you turn it on, in
+  Settings. A caret that moves on its own takes the text out from under
+  somebody reading at their own pace.
+- **Announcements.** Errors, run completions and per-episode progress can
+  each be spoken, and sent to a braille display, working around the
+  activity log's long-standing inability to announce itself. All four are
+  off by default and the component is downloaded only when asked for.
+- **Offer to check favourites at launch** -- once, after a week, with Stop
+  asking as one of the three answers. Still not a subscription: nothing
+  runs while podHarvest is closed and saying yes downloads nothing.
+
+All of this works on transcripts already on disk. podHarvest has always
+written `[HH:MM:SS.mmm]` markers into transcripts, and reading those back is
+what makes a library harvested a year ago searchable to the second today; a
+new `.words.json` sidecar adds word-level precision for runs from now on.
+
+### Changed (models)
+
+- **The main window offers only models that can actually run**, and says so
+  when none can. **Set up models** is a new window listing every model
+  podHarvest knows -- Ready, Not downloaded, Needs an API key, or Will not
+  fit, with the numbers on that last one. Nothing is hidden any more.
+- **The model list no longer changes with free memory.** It was sized
+  against available RAM, so models appeared and disappeared depending on
+  what else was open; the one most often lost was the CPU Parakeet, on the
+  machines with no GPU that need it most.
+- **Downloading a model names both of its phases.** The first -- installing
+  the engine's Python packages -- reports no percentage and can take
+  minutes, so it used to look exactly like a dead button.
+
+### Fixed (keyboard)
+
+- **Alt+T opens the Tools menu.** A checkbox in the client area was
+  claiming it; no control on the main window may now claim any of the five
+  menu letters.
+- **Tab no longer walks into the status bar.** It is a review surface
+  reached with F6, not five stops between the last control and the end of
+  the window.
+
 ### Changed (choosing a podcast)
 
 - **Four sources, each with its own box.** The Source group was doing two

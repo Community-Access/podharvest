@@ -55,6 +55,22 @@ back, are set in **Settings ▸ Finding podcasts**; stores carry different shows
 so a local programme may only appear in its own. The default is the United
 States store, which is the largest.
 
+## Finding a moment
+
+**Ctrl+Shift+S** searches every transcript in your library at once. Each result
+says which episode, how many times, and *when* — and choosing one opens the
+transcript at the match with the audio cued to it. In the reader,
+**Control+Enter** plays from wherever the caret is.
+
+Select a passage and **Save as a clip** writes exactly that audio to its own
+file, named after the words that were said. The chapter editor will also take a
+phrase and move the playhead to where it was spoken, which beats hunting for a
+boundary by ear.
+
+These work on transcripts you already have: podHarvest writes timings into every
+transcript it makes, so a library harvested a year ago is searchable this way
+today.
+
 **Show episodes** (**Ctrl+Shift+E**) reads a feed and lists what is in it —
 titles, dates, lengths, and whether each episode has audio or a published
 transcript — *without downloading anything*. It is the way to see what a show

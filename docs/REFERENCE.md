@@ -362,6 +362,40 @@ work it is not about to do:
 
 The choice is saved as `source_mode` and restored at launch.
 
+### Timings
+
+Every transcription engine can return word-level timings, and podHarvest now keeps them. [`podharvest/timing_core.py`](../podharvest/timing_core.py) holds the model — `TimedWord`, `TimedSegment`, `Timeline` — and `load_timeline(transcript_path)` is the one way in. It reads the best source available, in order:
+
+1. `<slug>.words.json` beside the transcript — word-accurate, written by every run from this version onwards.
+2. `<slug>.vtt` or `<slug>.srt` — cue-accurate, either the publisher's own or podHarvest's optional caption output.
+3. The `[HH:MM:SS.mmm]` markers in the transcript itself — segment-accurate, and present in almost every transcript already on disk.
+
+That third one is the point. Building only on the sidecar would have made every timing feature work for episodes transcribed after today and for nothing else; reading the markers back means a library harvested a year ago becomes searchable to the second without re-transcribing anything. `Timeline.source` names which of the three it got, so a window can say how precise it is being rather than implying word accuracy it does not have.
+
+Segments without words are the ordinary case, not a degraded one, and every method answers sensibly for them.
+
+The module is standard-library-only and shared byte-for-byte with QUILL; see [SHARED.md](SHARED.md).
+
+**One trap worth knowing.** The reader's text box shows the *file* — headings, blank lines, and the markers themselves — while the timeline holds only the spoken segments with the markers stripped. Box line N is therefore not segment N. `TranscriptDialog._build_line_map` is the only place those two coordinate systems meet, and both "play from here" and follow-along go through it; assuming they matched put the caret on the wrong sentence in both directions.
+
+### Models
+
+Choosing a model and setting one up are separate.
+
+The main window offers only models that can run right now: an on-device model whose engine packages and weights are both present, or a cloud model whose provider has a key. A picker whose entries then refuse to run has to be explained every time. When nothing is ready it says so, and starting a run anyway still works — it fetches what it needs first.
+
+**Set up models** ([`podharvest/model_manager.py`](../podharvest/model_manager.py)) is the inventory: every model podHarvest knows, with a word on each — Ready, Not downloaded, Needs an API key, or Will not fit. Nothing is hidden. A model too large for the machine is listed with the numbers, because "unavailable" invites a support email and "needs about 6 GB; this machine can give about 4.5" does not. Cloud providers with no key are listed too, since one you have never configured is otherwise invisible everywhere in podHarvest.
+
+Which models a machine is offered comes from `hardware.model_budget_gb`, which is deliberately *not* `usable_accel_memory_gb`: the latter folds in how much memory happens to be free, so the list changed between launches depending on what else was open. Capacity does not move, so neither does the list.
+
+Downloading happens in [`podharvest/model_download.py`](../podharvest/model_download.py), which names both phases. The work has two — installing the engine's Python packages, then fetching the weights — and only the second reports a percentage, so the first used to look exactly like a dead button.
+
+### Announcements
+
+The activity log cannot announce itself. wxWidgets exposes MSAA only: no live-region API on any platform, no UI Automation provider, no way to raise a UIA notification. Appending to a read-only text control fires a value-change event that NVDA, JAWS and Narrator all deliberately ignore for a control without focus.
+
+[`podharvest/announce.py`](../podharvest/announce.py) speaks to the screen reader directly instead, through `accessible_output2`, and reaches a braille display the same way. **Settings ▸ Announcements** offers errors, run completions and per-episode progress, each chosen separately, plus braille. All four are off by default. The component is installed on demand into the app space when **Set up announcements** is pressed — nothing is downloaded until then, and every function returns False rather than raising when it is absent.
+
 ### The library
 
 With no run in progress, the Episodes list is your library rather than a

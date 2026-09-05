@@ -28,22 +28,45 @@ Update this table as tasks land. It is the single answer to "what is done and wh
 
 | # | Task | Status |
 |---|---|---|
-| 1 | `timing_core.py`: the timing model | Not started |
-| 2 | Load timings from bracketed transcript text | Not started |
-| 3 | Load timings from VTT/SRT | Not started |
-| 4 | The `.words.json` sidecar (writing) | Not started |
-| 5 | `load_timeline`: source priority and the public entry point | Not started |
-| 6 | Share-ready: digest, gitattributes, drift test | Not started |
-| 7 | Search then hear it | Not started |
-| 8 | Play from here, in the reader | Not started |
-| 9 | Follow-along reading (opt-in) | Not started |
-| 10 | Clip export | Not started |
-| 11 | Place a chapter by phrase | Not started |
-| 12 | `announce.py`: the bridge | Not started |
-| 13 | Announcements wired into runs, opt-in | Not started |
-| 14 | Braille output | Not started |
-| 15 | Ask-once-per-launch favourites check | Not started |
-| 16 | Documentation and the release | Not started |
+| 1 | `timing_core.py`: the timing model | Done |
+| 2 | Load timings from bracketed transcript text | Done |
+| 3 | Load timings from VTT/SRT | Done |
+| 4 | The `.words.json` sidecar (writing) | Done |
+| 5 | `load_timeline`: source priority and the public entry point | Done |
+| 6 | Share-ready: digest, gitattributes, drift test | Done |
+| 7 | Search then hear it | Done |
+| 8 | Play from here, in the reader | Done |
+| 9 | Follow-along reading (opt-in) | Done |
+| 10 | Clip export | Done |
+| 11 | Place a chapter by phrase | Done |
+| 12 | `announce.py`: the bridge | Done |
+| 13 | Announcements wired into runs, opt-in | Done |
+| 14 | Braille output | Done |
+| 15 | Ask-once-per-launch favourites check | Done |
+| 16 | Documentation and the release | Done (build unsigned) |
+
+### Done outside this plan, asked for during it
+
+| Task | Status |
+|---|---|
+| Alt+T reaches the Tools menu; no control claims a menu letter | Done |
+| Tab no longer enters the status bar; F6 only | Done |
+| Model acquisition in its own window, naming both phases | Done |
+| Model list no longer varies with free memory | Done |
+| Set up models: the full inventory, nothing hidden | Done |
+| The model description box is sized to hold a description | Done |
+
+### Found and fixed while building this
+
+- `Settings.from_dict` did not know about the `opml` source mode, so
+  choosing Podcast list and reopening silently landed back on Podcast feed.
+- The reader's box and the timeline are different coordinate systems;
+  assuming box line N was segment N put the caret on the wrong sentence in
+  both directions. Both now go through one explicit line map.
+- Subclassing a wx control hid it from the help gate, so the gate follows
+  subclasses now and cannot be dodged by wrapping a control.
+- The chapter page's new phrase field collided with the transport's Play
+  mnemonic; the editor's own test caught it.
 
 **Deferred to a later cycle (QUILL):** de-esser and noise gate as ffmpeg fragments, dereverb, breath softening, the music bed with sidechain ducking, the preset rework, word timings from QUILL's local ASR providers, Edge TTS, and QUILL's adoption of the four shared modules. None of it is in this plan.
 
