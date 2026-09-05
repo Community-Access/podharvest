@@ -43,7 +43,42 @@ First public release.
   vetted, so the family offers the same choices everywhere.
   docs/CODE-REVIEW-2026-09.md records what was considered and not added.
 
+### Changed (choosing a podcast)
+
+- **Four sources, each with its own box.** The Source group was doing two
+  jobs: "Podcast feed" and "Local files" said what you were working on,
+  while "Find a podcast" said how you would get an address -- which is why
+  Find and Feed shared a box and importing a list was buried in a menu.
+  It is now Find a podcast, Podcast feed, Podcast list and Local files,
+  and each owns the box below it. Searching and reading an OPML list happen
+  in the window rather than in a dialog over the top of it, so the show you
+  are choosing and the run you are setting up are on screen together.
+- **A Chosen podcast line, and nothing enabled before there is one.** All
+  three feed sources end in the same place, so what to do next -- the
+  episode filter, Show episodes, Add to favourites -- moved out of the Feed
+  box into a row of its own, greyed until something is chosen. Favourites
+  stays enabled, because it is how you get a podcast in the first place.
+- **The same context menu on every list of podcasts.** The inline results,
+  the inline list, the search window, favourites and the import window all
+  build their menu from one function: use or check this show, add or remove
+  it, copy the feed address, open its page. Entries a row cannot support are
+  dimmed rather than absent.
+
 ### Fixed (accessibility and release hardening)
+
+- **Space checks a box and stays where it is.** On Windows a checkable list
+  reports Space as an item *activation* as well as a check, and activation
+  was bound to "use this show and close" -- so the one keystroke the import
+  window exists for threw you out of it. Space now only ever checks. Enter
+  does the window's actual job, adding everything checked, and the Add
+  button carries the count ("Add 12 checked to favourites") so tabbing to it
+  answers how many you have without going back to count.
+- **Favourites got a filter box and a detail pane.** A favourites list only
+  grows; typing three letters of a name is a faster route than arrowing
+  through forty. The box below the list gives the highlighted show's feed
+  address, which is the thing no column can show, and Delete removes an
+  entry -- a bookmark, so nothing harvested is touched, and the status line
+  says so.
 
 - **Screen readers can read the lists again.** The helper that gives a control
   an accessible name was replacing the native accessibility object, which on

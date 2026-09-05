@@ -68,9 +68,19 @@ _RUN_COLUMNS = (
 #: Headings for a feed being browsed rather than harvested. The list is
 #: showing what a publisher offers, not what you have, so "What you
 #: have" would be a lie in every row.
-#: The three sources, in the order the radio offers them. One list so the
+#: The four sources, in the order the radio offers them. One list so the
 #: control, the setting and every `source_mode()` comparison cannot drift.
-_SOURCE_MODES: tuple[str, ...] = ("find", "feed", "local")
+#: Three of them end in a feed address and one does not; `uses_a_feed()` is
+#: how the rest of the window asks which, rather than naming modes.
+_SOURCE_MODES: tuple[str, ...] = ("find", "feed", "opml", "local")
+
+#: Columns for the inline search results.
+_FIND_COLUMNS = (
+    ("Podcast", 260), ("By", 180), ("What it is", 210), ("Latest", 96),
+)
+#: Columns for the inline podcast list. One column: an OPML entry is a name
+#: and a sentence, and a second column of empty cells reads as missing data.
+_OPML_COLUMNS = (("Show", 620),)
 
 _BROWSE_COLUMNS = (
     ("#", 50), ("Episode", 400), ("Published", 110), ("Length", 90),
@@ -994,6 +1004,13 @@ class MainFrame(wx.Frame):
         #: The library rows currently shown, by row index. Empty while a
         #: run is in progress, when the list is a progress view instead.
         self._library_rows: dict[int, object] = {}
+        #: The inline search and list results, and the threads that fetch
+        #: them. Separate from the harvest worker: reading a directory while
+        #: a run is going is harmless, and blocking it would be surprising.
+        self._find_results: list = []
+        self._opml_shows: list = []
+        self._find_worker: threading.Thread | None = None
+        self._opml_worker: threading.Thread | None = None
         self._episode_percent: dict[int, tuple[str, int]] = {}
         self._counts: dict[str, int] = {}
         self._run_output_dir = ""
@@ -1691,10 +1708,21 @@ class MainFrame(wx.Frame):
         outer = wx.BoxSizer(wx.VERTICAL)
 
         outer.Add(self._build_source_box(panel), 0, wx.EXPAND | wx.ALL, 10)
+        # One box per source, in the radio's own order, and exactly one of
+        # them shown at a time. _apply_source_mode is the only thing that
+        # decides which.
+        self._find_box = self._build_find_box(panel)
+        outer.Add(self._find_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         self._feed_box = self._build_feed_box(panel)
         outer.Add(self._feed_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        self._opml_box = self._build_opml_box(panel)
+        outer.Add(self._opml_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         self._local_box = self._build_local_box(panel)
         outer.Add(self._local_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        # Shared by all three feed sources: what was chosen, and what to do
+        # with it. Hidden only for local files, which choose nothing.
+        self._chosen_box = self._build_chosen_box(panel)
+        outer.Add(self._chosen_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
         outer.Add(self._build_output_box(panel), 0, wx.EXPAND | wx.ALL, 10)
         outer.Add(self._build_options_box(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         outer.Add(self._build_hardware_box(panel), 0, wx.EXPAND | wx.ALL, 10)
@@ -2143,15 +2171,19 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.mode_radio = wx.RadioBox(
             panel, label="Source",
-            choices=["&Find a podcast", "Podcast f&eed", "&Local files"],
-            majorDimension=3, style=wx.RA_SPECIFY_COLS)
+            choices=["&Find a podcast", "Podcast f&eed", "Podcast &list",
+                     "&Local files"],
+            majorDimension=4, style=wx.RA_SPECIFY_COLS)
         self.mode_radio.SetToolTip(
+            "Four ways to say what to work on, each with its own box below. "
             "Find a podcast searches Apple's directory by name, for when you "
             "know the show but not its address. Podcast feed takes an address "
-            "you already have. Local files works on audio already on this "
-            "machine -- a folder of recordings, an audiobook, anything you "
-            "have -- transcribing it, summarising it, and letting you edit "
-            "its tags and chapter markers. Everything below applies to "
+            "you already have. Podcast list reads an OPML file -- how podcast "
+            "apps hand each other a list of shows -- and lets you pick from "
+            "it. Local files works on audio already on this machine -- a "
+            "folder of recordings, an audiobook, anything you have -- "
+            "transcribing it, summarising it, and letting you edit its tags "
+            "and chapter markers. Everything further down applies to "
             "whichever you pick."
         )
         set_accessible_name(self.mode_radio, "Source")
@@ -2324,11 +2356,12 @@ class MainFrame(wx.Frame):
     def uses_a_feed(self) -> bool:
         """Whether this source ends up harvesting a feed.
 
-        Find and Feed both do -- Find is Feed with a search in front of it --
-        so anything that acts on the feed address asks this rather than
-        comparing against "feed" and quietly excluding Find.
+        Three of the four do: searching the directory, typing an address and
+        reading a list are three ways of arriving at the same place. Anything
+        that acts on the feed address asks this rather than naming modes and
+        quietly forgetting one when a fourth is added.
         """
-        return self.source_mode() in {"find", "feed"}
+        return self.source_mode() != "local"
 
     def _apply_source_mode(self, *, refresh: bool = True) -> None:
         """Swap the window over to whichever source is chosen.
@@ -2340,9 +2373,15 @@ class MainFrame(wx.Frame):
         """
         mode = self.source_mode()
         local = mode == "local"
-        # Find and Feed share the box: Find is Feed with a search in front.
-        self._outer.Show(self._feed_box, not local, recursive=True)
-        self._outer.Show(self._local_box, local, recursive=True)
+        # One box per source. Everything not chosen is hidden outright rather
+        # than greyed: these are four different jobs, not four states of one.
+        for name, sizer in (("find", self._find_box), ("feed", self._feed_box),
+                            ("opml", self._opml_box), ("local", self._local_box)):
+            self._outer.Show(sizer, mode == name, recursive=True)
+        # The chosen podcast, and what to do with it, belongs to the three
+        # feed sources. Local files choose nothing and harvest no feed.
+        self._outer.Show(self._chosen_box, not local, recursive=True)
+        self._sync_chosen()
         # Downloading is a feed idea; a local file is already here.
         self.chk_download.Enable(not local)
         # So is the episode limit: it caps how many are fetched, and local
@@ -2383,18 +2422,147 @@ class MainFrame(wx.Frame):
             # Focus stays on the radio group: arrowing through it is how you
             # read what the options are, and yanking focus away mid-read
             # strands you somewhere you did not ask to go. The status line
-            # says where the finding happens; Tab gets you there.
-            if mode == "find":
-                self._set_progress_text(
-                    "Type a podcast's name and press Find Podcast to search "
-                    "Apple's directory.")
+            # says where the work happens; Tab gets you there.
+            self._set_progress_text({
+                "find": "Type a podcast's name and press Find Podcast to "
+                        "search Apple's directory.",
+                "feed": "Put a feed address in the box, or switch to Find a "
+                        "podcast to search for one.",
+                "opml": "Give the address of an OPML list, or browse for one "
+                        "on this machine, then press Read the list.",
+                "local": "Add files or a folder, then press Start on these "
+                         "files.",
+            }.get(mode, ""))
         self._outer.Layout()
         self.Layout()
+
+    def _build_find_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """Search the directory here, rather than in a window over the top.
+
+        The results were behind a modal dialog, which meant the choosing and
+        the harvesting were never on screen together: you picked a show,
+        the window vanished, and all that was left was an address in a box.
+        Inline, the list stays put and the row you are on is the podcast the
+        rest of the window is about.
+
+        The narrowing options -- which store, how many, what to match
+        against -- live in Settings under Finding podcasts, because they are
+        set once and then left alone, and putting five more controls here
+        would bury the two that get used every time.
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Find a podcast")
+        holder = box.GetStaticBox()
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        # Label before control, so a screen reader pairs the two.
+        row.Add(wx.StaticText(holder, label="&Search for:"), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.find_ctrl = wx.TextCtrl(holder, style=wx.TE_PROCESS_ENTER)
+        self.find_ctrl.SetToolTip(
+            "The name of the show, its presenter, or a word from what it is "
+            "about. Press Enter to search Apple's directory. Which country's "
+            "store is asked, and how many results come back, are set in "
+            "Settings."
+        )
+        self.find_ctrl.SetHint("a show, a presenter, or a subject")
+        set_accessible_name(self.find_ctrl, "Search for a podcast")
+        self.find_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self._on_find_search())
+        row.Add(self.find_ctrl, 1, wx.RIGHT, 6)
+
+        self.find_btn = wx.Button(holder, label="Find &Podcast")
+        self.find_btn.SetToolTip(
+            "Asks Apple's directory for shows matching what you typed. Enter "
+            "in the box beside it does the same.")
+        self.find_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_find_search())
+        row.Add(self.find_btn, 0)
+        box.Add(row, 0, wx.EXPAND | wx.ALL, 8)
+
+        # Label before control, so a screen reader pairs the two.
+        box.Add(wx.StaticText(holder, label="&Results:"), 0,
+                wx.LEFT | wx.RIGHT, 8)
+        self.find_list = wx.ListCtrl(
+            holder, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SUNKEN)
+        for heading, width in _FIND_COLUMNS:
+            self.find_list.AppendColumn(heading, width=width)
+        self.find_list.SetToolTip(
+            "The shows that matched. Arrowing onto one chooses it -- the "
+            "Chosen podcast line below says which -- and everything further "
+            "down then applies to it."
+        )
+        set_accessible_name(self.find_list, "Search results")
+        self.find_list.Bind(wx.EVT_LIST_ITEM_SELECTED,
+                            lambda _e: self._on_find_selected())
+        self.find_list.Bind(wx.EVT_CONTEXT_MENU, self._on_find_context_menu)
+        size_for_text(self.find_list, lines=6, chars=0)
+        box.Add(self.find_list, 1, wx.EXPAND | wx.ALL, 8)
+        return box
+
+    def _build_opml_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """A list of shows, and one of them chosen.
+
+        The same reading the Import a list window does, without the window:
+        importing to favourites and picking something to harvest right now
+        are different jobs, and only the second one belongs on the way to
+        pressing Start. The import window is still there, under File, for
+        when the job really is "keep all forty of these".
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Podcast list")
+        holder = box.GetStaticBox()
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        # Label before control, so a screen reader pairs the two.
+        row.Add(wx.StaticText(holder, label="List &address or file:"), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.opml_ctrl = wx.TextCtrl(holder, style=wx.TE_PROCESS_ENTER)
+        self.opml_ctrl.SetToolTip(
+            "The web address of an OPML list, or the path to one on this "
+            "machine. Press Enter to read it. Web addresses must be https: a "
+            "list of feeds that can be rewritten in transit is one that can "
+            "point podHarvest somewhere else."
+        )
+        self.opml_ctrl.SetHint("https://example.com/podcasts.opml")
+        set_accessible_name(self.opml_ctrl, "List address or file")
+        self.opml_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self._on_opml_read())
+        row.Add(self.opml_ctrl, 1, wx.RIGHT, 6)
+
+        opml_browse = wx.Button(holder, label="Br&owse...")
+        opml_browse.SetToolTip("Choose an OPML file already on this machine.")
+        opml_browse.Bind(wx.EVT_BUTTON, lambda _e: self._on_opml_browse())
+        row.Add(opml_browse, 0, wx.RIGHT, 6)
+
+        self.opml_btn = wx.Button(holder, label="&Read the list")
+        self.opml_btn.SetToolTip(
+            "Reads the list and shows what is in it. Nothing is added to "
+            "your favourites and nothing is downloaded.")
+        self.opml_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_opml_read())
+        row.Add(self.opml_btn, 0)
+        box.Add(row, 0, wx.EXPAND | wx.ALL, 8)
+
+        # Label before control, so a screen reader pairs the two.
+        box.Add(wx.StaticText(holder, label="S&hows in this list:"), 0,
+                wx.LEFT | wx.RIGHT, 8)
+        self.opml_list = wx.ListCtrl(
+            holder, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER
+            | wx.BORDER_SUNKEN)
+        for heading, width in _OPML_COLUMNS:
+            self.opml_list.AppendColumn(heading, width=width)
+        self.opml_list.SetToolTip(
+            "Every show the list holds. Arrowing onto one chooses it -- the "
+            "Chosen podcast line below says which. To keep several of them "
+            "as favourites instead, use File then Import a list of podcasts."
+        )
+        set_accessible_name(self.opml_list, "Shows in this list")
+        self.opml_list.Bind(wx.EVT_LIST_ITEM_SELECTED,
+                            lambda _e: self._on_opml_selected())
+        self.opml_list.Bind(wx.EVT_CONTEXT_MENU, self._on_opml_context_menu)
+        size_for_text(self.opml_list, lines=6, chars=0)
+        box.Add(self.opml_list, 1, wx.EXPAND | wx.ALL, 8)
+        return box
 
     def _build_feed_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
         box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Feed")
         holder = box.GetStaticBox()
-        grid = wx.FlexGridSizer(2, 3, 8, 8)
+        grid = wx.FlexGridSizer(1, 2, 8, 8)
         grid.AddGrowableCol(1, 1)
 
         url_label = wx.StaticText(holder, label="Feed &URL:")
@@ -2410,19 +2578,48 @@ class MainFrame(wx.Frame):
                                  "page usually works too - its feed is discovered "
                                  "automatically.")
         self.url_ctrl.SetHint("https://example.com/feed")
-        self.find_btn = find_btn = wx.Button(holder, label="Find &Podcast...")
-        find_btn.SetToolTip(
-            "Search Apple's podcast directory by name, so you do not "
-            "have to hunt for a feed address. Ctrl+K opens it from "
-            "anywhere."
-        )
-        find_btn.Bind(wx.EVT_BUTTON, self._on_find_podcast)
+        # Typing an address is choosing a podcast, so the row below has to
+        # come to life as the box fills, not only when a list is clicked.
+        self.url_ctrl.Bind(wx.EVT_TEXT, self._on_url_typed)
         grid.Add(url_label, 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.url_ctrl, 1, wx.EXPAND)
-        grid.Add(find_btn, 0)
+        box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+        return box
 
+    def _build_chosen_box(self, panel: wx.Panel) -> wx.StaticBoxSizer:
+        """What was chosen, and everything that only makes sense once it is.
+
+        This row used to live inside the Feed box, enabled from the moment
+        the window opened. Filtering the episodes of no podcast, or showing
+        the episodes of no feed, are not things a person can want, and a
+        control that is always available says nothing about when to use it.
+        It is greyed until something is chosen -- greyed rather than hidden,
+        so it keeps its place in the tab order and announces as unavailable
+        rather than silently not being there.
+
+        It sits outside the four source boxes because all three feed sources
+        end here: whichever way you found the show, this is what you do with
+        it next.
+        """
+        box = wx.StaticBoxSizer(wx.VERTICAL, panel, "Chosen podcast")
+        holder = box.GetStaticBox()
+
+        # Read-only rather than a StaticText: a label change is silent to a
+        # screen reader, and this is the line that answers "what did I just
+        # pick?". As a real field it can be tabbed to and read on demand.
+        self.chosen_ctrl = wx.TextCtrl(
+            holder, value="", style=wx.TE_READONLY)
+        self.chosen_ctrl.SetToolTip(
+            "The podcast the rest of this window is about, however you found "
+            "it. Read-only."
+        )
+        set_accessible_name(self.chosen_ctrl, "Chosen podcast")
+        box.Add(self.chosen_ctrl, 0, wx.EXPAND | wx.ALL, 8)
+
+        grid = wx.FlexGridSizer(1, 2, 8, 8)
+        grid.AddGrowableCol(1, 1)
         # Label before control, so a screen reader pairs the two.
-        match_label = wx.StaticText(holder, label="Only episodes &matching:")
+        self._match_label = wx.StaticText(holder, label="Only episodes &matching:")
         self.match_ctrl = wx.TextCtrl(holder, value="")
         self.match_ctrl.SetToolTip(
             "Leave empty for every episode. Otherwise only episodes whose "
@@ -2433,11 +2630,9 @@ class MainFrame(wx.Frame):
         )
         self.match_ctrl.SetHint("part of an episode title")
         set_accessible_name(self.match_ctrl, "Only episodes matching")
-        grid.Add(match_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self._match_label, 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.match_ctrl, 1, wx.EXPAND)
-        grid.Add(wx.StaticText(holder, label=""))
-
-        box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+        box.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.browse_btn = wx.Button(holder, label="Show &episodes")
@@ -2449,50 +2644,266 @@ class MainFrame(wx.Frame):
         self.browse_btn.Bind(wx.EVT_BUTTON, self._on_browse_feed)
         row.Add(self.browse_btn, 0, wx.RIGHT, 6)
 
-        fav_btn = wx.Button(holder, label="Fa&vourites...")
-        fav_btn.SetToolTip(
+        self.fav_btn = wx.Button(holder, label="Fa&vourites...")
+        self.fav_btn.SetToolTip(
             "The shows you have marked, to come back to without "
             "searching again. Bookmarks, not subscriptions: nothing "
             "is checked or downloaded for you."
         )
-        fav_btn.Bind(wx.EVT_BUTTON, self._on_favorites)
-        row.Add(fav_btn, 0, wx.RIGHT, 6)
+        self.fav_btn.Bind(wx.EVT_BUTTON, self._on_favorites)
+        row.Add(self.fav_btn, 0, wx.RIGHT, 6)
 
         self.add_fav_btn = wx.Button(holder, label="&Add to favourites")
         self.add_fav_btn.SetToolTip(
-            "Remembers the feed address above, under the name the "
-            "feed gives itself once it has been read."
+            "Remembers the chosen podcast, under the name it gives itself "
+            "once its feed has been read."
         )
         self.add_fav_btn.Bind(wx.EVT_BUTTON, self._on_add_favorite)
         row.Add(self.add_fav_btn, 0)
-        box.Add(row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        box.Add(row, 0, wx.ALL, 8)
         return box
+
+    # -- the chosen podcast -----------------------------------------------
+
+    def _sync_chosen(self) -> None:
+        """Say what is chosen, and grey what is useless until something is.
+
+        The feed address in `url_ctrl` is the single answer to "what will
+        Start harvest?", whichever box put it there. This reads it back in
+        words and switches the row that acts on it.
+        """
+        url = self.url_ctrl.GetValue().strip()
+        title = getattr(self, "_browsed_title", "")
+        self.chosen_ctrl.SetValue(
+            f"{title} -- {url}" if title and url else url or "Nothing chosen yet.")
+        for control in (self.match_ctrl, self._match_label,
+                        self.browse_btn, self.add_fav_btn):
+            control.Enable(bool(url))
+        # Favourites is the exception: it is how you *get* a podcast, so it
+        # has to work when nothing is chosen -- which is exactly then.
+        self.fav_btn.Enable(True)
+
+    def _on_url_typed(self, _evt) -> None:
+        """A hand-typed address is a different show, so drop the old name.
+
+        Only typing reaches here: everything that chooses a podcast from a
+        list uses `ChangeValue`, which raises no text event. So an event
+        means the address no longer belongs to whatever was named before it,
+        and keeping that name would have the Chosen line confidently
+        mislabel a completely different feed.
+        """
+        self._browsed_title = ""
+        self._sync_chosen()
+
+    def _choose_feed(self, url: str, title: str = "", *,
+                     note: str = "") -> None:
+        """Make *url* the podcast the window is about, from any source."""
+        self.url_ctrl.ChangeValue(url)      # ChangeValue: no EVT_TEXT storm
+        self._browsed_title = title
+        self._sync_chosen()
+        if note:
+            LOG.info("%s", note)
 
     # -- finding a podcast ------------------------------------------------
 
-    def _on_find_podcast(self, _evt=None) -> None:
-        """Search the directory, and take whatever was chosen.
+    def _on_find_search(self, _evt=None) -> None:
+        """Search the directory on a worker, so the window stays alive."""
+        term = self.find_ctrl.GetValue().strip()
+        if not term:
+            LOG.info("Type a podcast's name, or a presenter, or a subject, "
+                     "then press Find Podcast.")
+            self.find_ctrl.SetFocus()
+            return
+        if self._find_worker is not None and self._find_worker.is_alive():
+            LOG.info("That search is still running.")
+            return
+        self.find_btn.Disable()
+        self._set_progress_text(f"Searching for {term}...")
+        self._find_worker = threading.Thread(
+            target=self._run_find_worker, args=(term,), daemon=True)
+        self._find_worker.start()
 
-        Switches to the feed source first: choosing a podcast while the window
-        is on Local files would put an address into a box nobody can see.
-        """
-        from podharvest.discover import SearchDialog
+    def _run_find_worker(self, term: str) -> None:
+        from podharvest import directory as directory_mod
 
-        if not self.uses_a_feed():
-            self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
-            self._apply_source_mode()
-        dlg = SearchDialog(self, self.app_space, self.settings)
         try:
-            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+            results = directory_mod.search(
+                term,
+                limit=int(getattr(self.settings, "search_limit",
+                                  directory_mod.DEFAULT_LIMIT)),
+                country=getattr(self.settings, "itunes_country",
+                                directory_mod.DEFAULT_STOREFRONT),
+            )
+            error = ""
+        except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
+            results, error = [], str(exc)
+            LOG.exception("That search failed: %s", exc)
+        wx.CallAfter(self._show_find_results, results, error)
+
+    def _show_find_results(self, results, error: str) -> None:
+        self.find_btn.Enable()
+        self._find_results = list(results)
+        self.find_list.DeleteAllItems()
+        for result in self._find_results:
+            row = self.find_list.InsertItem(
+                self.find_list.GetItemCount(), result.title)
+            self.find_list.SetItem(row, 1, getattr(result, "artist", "") or "")
+            self.find_list.SetItem(row, 2, getattr(result, "genre", "") or "")
+            self.find_list.SetItem(row, 3, getattr(result, "released", "") or "")
+        if error:
+            self._set_progress_text(error)
+            LOG.info("%s", error)
+            return
+        if not self._find_results:
+            self._set_progress_text(
+                "Nothing matched. Try fewer words, or a different country's "
+                "store in Settings.")
+            return
+        self._set_progress_text(
+            f"{len(self._find_results)} show(s). Arrow through the results; "
+            "the one you land on is the one that will be harvested.")
+        self.find_list.Select(0)
+        self.find_list.Focus(0)
+        self.find_list.SetFocus()
+
+    def _selected_find_result(self):
+        row = self.find_list.GetFirstSelected()
+        return (self._find_results[row]
+                if 0 <= row < len(self._find_results) else None)
+
+    def _on_find_selected(self) -> None:
+        result = self._selected_find_result()
+        if result is None:
+            return
+        self._choose_feed(result.feed_url, result.title)
+
+    def _on_find_context_menu(self, _evt) -> None:
+        result = self._selected_find_result()
+        self._popup_podcast_menu(
+            self.find_list,
+            title=getattr(result, "title", ""),
+            feed_url=getattr(result, "feed_url", ""),
+            homepage=getattr(result, "homepage", ""))
+
+    # -- a list of podcasts ------------------------------------------------
+
+    def _on_opml_browse(self) -> None:
+        with wx.FileDialog(
+            self, "Choose an OPML file",
+            wildcard="Podcast lists (*.opml;*.xml)|*.opml;*.xml|All files|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
                 return
-            chosen = dlg.chosen
-        finally:
-            dlg.Destroy()
-        self.url_ctrl.SetValue(chosen.feed_url)
-        self._browsed_title = chosen.title
-        LOG.info("Chose '%s'. Press Show episodes to see what it has, or "
-                 "Start to harvest it.", chosen.display_name)
-        self.browse_btn.SetFocus()
+            self.opml_ctrl.SetValue(dlg.GetPath())
+        self._on_opml_read()
+
+    def _on_opml_read(self, _evt=None) -> None:
+        """Read the list on a worker, so a slow server does not freeze this."""
+        source = self.opml_ctrl.GetValue().strip()
+        if not source:
+            LOG.info("Give a list address, or browse for an OPML file on this "
+                     "machine, then press Read the list.")
+            self.opml_ctrl.SetFocus()
+            return
+        if self._opml_worker is not None and self._opml_worker.is_alive():
+            LOG.info("That list is still being read.")
+            return
+        self.opml_btn.Disable()
+        self._set_progress_text(f"Reading {source}...")
+        self._opml_worker = threading.Thread(
+            target=self._run_opml_worker, args=(source,), daemon=True)
+        self._opml_worker.start()
+
+    def _run_opml_worker(self, source: str) -> None:
+        from podharvest import opml as opml_mod
+
+        try:
+            shows = opml_mod.without_duplicates(
+                opml_mod.load(source, settings=self.settings))
+            error = ""
+        except Exception as exc:  # noqa: BLE001 - surfaced, never swallowed
+            shows, error = [], str(exc)
+            LOG.exception("Reading that list failed: %s", exc)
+        wx.CallAfter(self._show_opml_list, shows, error)
+
+    def _show_opml_list(self, shows, error: str) -> None:
+        self.opml_btn.Enable()
+        self._opml_shows = list(shows)
+        self.opml_list.DeleteAllItems()
+        for show in self._opml_shows:
+            summary = show.summary()
+            self.opml_list.InsertItem(
+                self.opml_list.GetItemCount(),
+                f"{show.title} - {summary}" if summary else show.title)
+        if error:
+            self._set_progress_text(error)
+            LOG.info("%s", error)
+            return
+        if not self._opml_shows:
+            self._set_progress_text(
+                "That list has no podcasts in it. It may be an outline of "
+                "something else, or its entries may have no feed addresses.")
+            return
+        self._set_progress_text(
+            f"{len(self._opml_shows)} show(s). Arrow through them; the one "
+            "you land on is the one that will be harvested.")
+        self.opml_list.Select(0)
+        self.opml_list.Focus(0)
+        self.opml_list.SetFocus()
+
+    def _selected_opml_show(self):
+        row = self.opml_list.GetFirstSelected()
+        return (self._opml_shows[row]
+                if 0 <= row < len(self._opml_shows) else None)
+
+    def _on_opml_selected(self) -> None:
+        show = self._selected_opml_show()
+        if show is None:
+            return
+        self._choose_feed(show.feed_url, show.title)
+
+    def _on_opml_context_menu(self, _evt) -> None:
+        show = self._selected_opml_show()
+        self._popup_podcast_menu(
+            self.opml_list,
+            title=getattr(show, "title", ""),
+            feed_url=getattr(show, "feed_url", ""),
+            homepage=getattr(show, "homepage", ""))
+
+    def _popup_podcast_menu(self, target, *, title: str, feed_url: str,
+                            homepage: str) -> None:
+        """The actions a podcast row offers, on either inline list.
+
+        Copying the address and opening the page come from the same builder
+        the three podcast windows use, so all five lists offer the same
+        wording for the same idea. What only the main window can do -- read
+        this feed's episodes now, keep it -- is passed in.
+        """
+        from podharvest.discover import popup_podcast_menu
+
+        popup_podcast_menu(
+            self, target, feed_url=feed_url, homepage=homepage,
+            extra=(
+                ("&Show episodes", "Read this feed and list its episodes",
+                 self._on_browse_feed, bool(feed_url)),
+                ("&Add to favourites",
+                 "Remember this show, without harvesting it",
+                 self._on_add_favorite, bool(feed_url)),
+            ))
+
+    def _on_find_podcast(self, _evt=None) -> None:
+        """Ctrl+K: go to the search box, which is now part of the window.
+
+        This used to open the search in a dialog over the top. It is a source
+        of its own now, so the shortcut switches to it and puts the cursor in
+        the box -- the same place the dialog used to put it, minus the window.
+        """
+        if self.source_mode() != "find":
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("find"))
+            self._apply_source_mode()
+        self.find_ctrl.SetFocus()
+        self.find_ctrl.SelectAll()
 
     def _on_favorites(self, _evt=None) -> None:
         """Open the favourites list and take whatever was chosen."""
@@ -2508,9 +2919,9 @@ class MainFrame(wx.Frame):
         if not self.uses_a_feed():
             self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
             self._apply_source_mode()
-        self.url_ctrl.SetValue(chosen.feed_url)
-        self._browsed_title = chosen.title
-        LOG.info("Chose '%s' from your favourites.", chosen.display_name)
+        self._choose_feed(
+            chosen.feed_url, chosen.title,
+            note=f"Chose '{chosen.display_name}' from your favourites.")
         self.browse_btn.SetFocus()
 
     def _on_add_favorite(self, _evt=None) -> None:
@@ -2549,9 +2960,8 @@ class MainFrame(wx.Frame):
         if not self.uses_a_feed():
             self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
             self._apply_source_mode()
-        self.url_ctrl.SetValue(chosen.feed_url)
-        self._browsed_title = chosen.title
-        LOG.info("Chose '%s' from the imported list.", chosen.title)
+        self._choose_feed(chosen.feed_url, chosen.title,
+                          note=f"Chose '{chosen.title}' from the imported list.")
         self.browse_btn.SetFocus()
 
     def _on_check_favorites(self, _evt=None) -> None:
@@ -2573,9 +2983,9 @@ class MainFrame(wx.Frame):
         if not self.uses_a_feed():
             self.mode_radio.SetSelection(_SOURCE_MODES.index("feed"))
             self._apply_source_mode()
-        self.url_ctrl.SetValue(chosen.feed_url)
-        self._browsed_title = chosen.title
-        LOG.info("Chose '%s' from the favourites check.", chosen.title)
+        self._choose_feed(
+            chosen.feed_url, chosen.title,
+            note=f"Chose '{chosen.title}' from the favourites check.")
         self.browse_btn.SetFocus()
 
     def _on_export_opml(self, _evt=None) -> None:
@@ -2676,7 +3086,10 @@ class MainFrame(wx.Frame):
                 "Could not read the feed", wx.OK | wx.ICON_ERROR, self)
             return
 
+        # The feed named itself, which is better than whatever a search
+        # result or a list entry called it, so the Chosen line is updated.
         self._browsed_title = title
+        self._sync_chosen()
         self.episode_list.DeleteAllItems()
         self._episode_rows = {}
         self._library_rows = {}

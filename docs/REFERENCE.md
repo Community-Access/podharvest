@@ -21,7 +21,7 @@ Built and tested against real-world feeds such as [ACB Diabetics in Action](http
 - [Finding a podcast](#finding-a-podcast)
 - [Working on local files](#working-on-local-files)
 - [The desktop GUI](#the-desktop-gui)
-  - [Two sources](#two-sources)
+  - [Four sources](#four-sources)
   - [The library](#the-library)
   - [Reading a transcript](#reading-a-transcript)
   - [The Tag and Chapter Editor](#the-tag-and-chapter-editor)
@@ -320,20 +320,45 @@ A File/View/Episode/Tools/Help menu bar lists every action and its shortcut: **C
 
 Every field you change is remembered (via the same `settings.json` the CLI uses) and restored the next time you open the app.
 
-### Two sources
+### Four sources
 
-At the top of the window, a `wx.RadioBox` labelled **Source** with **Podcast
-feed** and **Local files**. A radio box rather than tabs or check boxes: it is
-announced as one named group with a position ("Source, Podcast feed, 1 of 2"),
-arrow keys move between the two, and there is no state where both or neither is
-chosen.
+At the top of the window, a `wx.RadioBox` labelled **Source** with **Find a
+podcast**, **Podcast feed**, **Podcast list** and **Local files**. A radio box
+rather than tabs or check boxes: it is announced as one named group with a
+position ("Source, Podcast feed, 2 of 4"), arrow keys move between them, and
+there is no state where several or none are chosen.
 
-Changing it swaps three things together, so the window never describes work it
-is not about to do:
+Each option owns a box below it, and exactly one box is shown at a time:
 
-- the input box below (Feed URL, or the Add/Remove buttons),
+| Source | Its box holds |
+|---|---|
+| Find a podcast | A search field and the directory results, listed inline |
+| Podcast feed | The feed address |
+| Podcast list | An OPML address or file, and the shows it holds |
+| Local files | Add, Add a folder, Remove, Clear |
+
+The first three all end in the same place — a feed address in `url_ctrl`, which
+is the single answer to "what will Start harvest?" whichever box put it there.
+`uses_a_feed()` asks that question rather than naming modes, so adding a fifth
+way to find a show does not mean auditing every comparison.
+
+Below them sits **Chosen podcast**, shared by those three: a read-only line
+naming what is chosen, the episode filter, **Show episodes**, **Favourites** and
+**Add to favourites**. It is greyed until something is chosen — filtering the
+episodes of no podcast is not a thing a person can want, and a control that is
+always available says nothing about when to use it. Greyed rather than hidden,
+so it keeps its place in the tab order and announces as unavailable rather than
+silently not being there. **Favourites** is the exception and stays enabled: it
+is how you *get* a podcast, so it has to work when none is chosen.
+
+Changing the source swaps several things together, so the window never describes
+work it is not about to do:
+
+- which source box is shown, and whether Chosen podcast is shown at all,
 - the Start button's label and its accessible name,
-- what the Episodes list is showing, and the list's column headings.
+- what the Episodes list is showing, its column headings, and its own label,
+  which becomes **Files** for local audio,
+- the episode limit, which is greyed for local files because nothing is fetched.
 
 The choice is saved as `source_mode` and restored at launch.
 
@@ -807,7 +832,7 @@ importable".
 | `write_markdown`/`write_html`/`write_text`/`write_json`/`write_csv`/`write_srt`/`write_vtt` | Which output formats to generate |
 | `naming_template` | Per-episode file naming. Placeholders: `{date}` `{slug}` `{title}` `{index}` `{season}` `{number}` `{year}` `{month}` `{day}` |
 | `log_verbosity` | Default `-v` level when none is given on the command line |
-| `source_mode` | Which source the main window opens on: `feed` or `local` |
+| `source_mode` | Which source the main window opens on: `find`, `feed`, `opml` or `local` |
 | `itunes_country` | Which of Apple's stores podcast searches ask. Any two-letter code Apple recognises; default `us` |
 | `search_limit` | How many results a search asks for, 1-200 |
 | `episode_match` | Only episodes whose titles contain these words (any order, case insensitive). Applied before `episode_limit` |

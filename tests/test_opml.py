@@ -266,6 +266,55 @@ class TestTheWindow:
         assert "podharvest.opml" in spec
 
 
+class TestCheckingStaysInTheWindow:
+    """Space checks a box. It must never also leave the window.
+
+    On Windows a checkable `wx.ListCtrl` reports Space as an item
+    *activation* as well as a check -- verified against wx 4.3.1, where one
+    Space produced ACTIVATED and CHECKED in that order. Binding activation
+    straight to "use this show and close" therefore threw you out of the
+    window on the very keystroke the window exists for.
+    """
+
+    def test_activation_ignores_the_space_key(self):
+        pytest.importorskip("wx")
+        import wx
+
+        from podharvest.discover import OpmlImportDialog
+
+        source = inspect.getsource(OpmlImportDialog._on_activated)
+        assert "WXK_SPACE" in source
+        assert wx.WXK_SPACE == 32
+
+    def test_enter_adds_rather_than_leaving(self):
+        """The primary action of a checklist is adding what you checked."""
+        pytest.importorskip("wx")
+        from podharvest.discover import OpmlImportDialog
+
+        source = inspect.getsource(OpmlImportDialog._on_list_key)
+        assert "WXK_RETURN" in source
+        assert "self.on_add()" in source
+
+    def test_use_this_one_is_not_the_dialog_affirmative(self):
+        """wx.ID_OK there would make Enter close the window from anywhere."""
+        pytest.importorskip("wx")
+        from podharvest.discover import OpmlImportDialog
+
+        source = inspect.getsource(OpmlImportDialog.__init__)
+        use_line = next(line for line in source.splitlines()
+                        if "self.use_btn = wx.Button" in line)
+        assert "wx.ID_OK" not in use_line
+
+    def test_the_add_button_carries_the_count(self):
+        """A status line is silent; a button's own label is not."""
+        pytest.importorskip("wx")
+        from podharvest.discover import OpmlImportDialog
+
+        source = inspect.getsource(OpmlImportDialog._sync_add_button)
+        assert "checked to &favourites" in source
+        assert "Enable(count > 0)" in source
+
+
 @pytest.mark.skip(reason="talks to the network; run by hand when changing the parser")
 def test_the_real_example_list_still_parses():
     """The ACB Media network list, which is what the example button loads.

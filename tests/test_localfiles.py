@@ -253,7 +253,17 @@ class TestTheWindow:
         source = inspect.getsource(gui.MainFrame._build_source_box)
         assert "wx.RadioBox" in source
         assert "Podcast f&eed" in source and "&Local files" in source
-        assert "&Find a podcast" in source, "three sources, not two"
+        assert "&Find a podcast" in source, "four sources, not two"
+        assert "Podcast &list" in source, "the OPML source is one of them"
+
+    def test_every_source_has_a_box_of_its_own(self):
+        """One box per source, and the mode switch shows exactly one."""
+        pytest.importorskip("wx")
+        from podharvest import gui
+
+        source = inspect.getsource(gui.MainFrame._apply_source_mode)
+        for box in ("_find_box", "_feed_box", "_opml_box", "_local_box"):
+            assert f"self.{box}" in source, f"{box} is never shown or hidden"
 
     def test_switching_source_swaps_the_box_and_relabels_start(self):
         pytest.importorskip("wx")

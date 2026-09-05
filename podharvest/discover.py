@@ -40,6 +40,50 @@ _FAVORITE_COLUMNS = (
 )
 
 
+def popup_podcast_menu(window, target, *, feed_url: str, homepage: str,
+                       extra=()) -> None:
+    """The actions a podcast row offers, wherever that row lives.
+
+    One builder for the search results, the favourites and the imported
+    list, because three menus over the same idea drift apart -- and a menu
+    that offers different things in three places teaches nothing. Each
+    window passes what only it can do (use this one, remove it) as *extra*.
+
+    Entries the row cannot support are dimmed rather than dropped, so the
+    menu keeps its shape and its wording stays learnable.
+    """
+    menu = wx.Menu()
+    entries = [
+        *extra,
+        ("&Copy the feed address", "Put the feed address on the clipboard",
+         lambda: copy_text(feed_url, "feed address"), bool(feed_url)),
+        ("Open the show's &page", "Open the show's own web page in a browser",
+         lambda: open_link(homepage), bool(homepage)),
+    ]
+    for label, help_text, action, enabled in entries:
+        item = menu.Append(wx.ID_ANY, label, help_text)
+        item.Enable(enabled)
+        window.Bind(wx.EVT_MENU, lambda _e, act=action: act(), item)
+    target.PopupMenu(menu)
+    menu.Destroy()
+
+
+def copy_text(text: str, what: str) -> None:
+    """Put *text* on the clipboard, and say so -- copying is silent."""
+    if not text or not wx.TheClipboard.Open():
+        return
+    try:
+        wx.TheClipboard.SetData(wx.TextDataObject(text))
+    finally:
+        wx.TheClipboard.Close()
+    LOG.info("Copied the %s: %s", what, text)
+
+
+def open_link(url: str) -> None:
+    if url:
+        wx.LaunchDefaultBrowser(url)
+
+
 class SearchDialog(wx.Dialog):
     """Search Apple's podcast directory and take a feed address from it."""
 
@@ -155,6 +199,7 @@ class SearchDialog(wx.Dialog):
                                lambda _e: self._on_selected())
         self.results_list.Bind(wx.EVT_LIST_ITEM_DESELECTED,
                                lambda _e: self._on_selected())
+        self.results_list.Bind(wx.EVT_CONTEXT_MENU, self._on_context_menu)
         root.Add(self.results_list, 1, wx.EXPAND | wx.ALL, 10)
 
         self.detail = wx.TextCtrl(
@@ -319,6 +364,21 @@ class SearchDialog(wx.Dialog):
         self.chosen = result
         self.EndModal(wx.ID_OK)
 
+    def _on_context_menu(self, _evt) -> None:
+        result = self.selected()
+        popup_podcast_menu(
+            self, self.results_list,
+            feed_url=getattr(result, "feed_url", "") or "",
+            homepage=getattr(result, "homepage", "") or "",
+            extra=(
+                ("&Use this podcast",
+                 "Take this show's feed back to the main window",
+                 self.on_use, result is not None),
+                ("Add to &favourites",
+                 "Remember this show without harvesting it",
+                 self.on_favorite, result is not None),
+            ))
+
     def on_favorite(self) -> None:
         result = self.selected()
         if result is None:
@@ -336,7 +396,13 @@ class SearchDialog(wx.Dialog):
 
 
 class FavoritesDialog(wx.Dialog):
-    """The shows you marked, to come back to without searching again."""
+    """The shows you marked, to come back to without searching again.
+
+    A filter box sits above the list because a favourites list is the one
+    list here that only ever grows. Forty shows is a lot of arrowing to
+    reach the one you meant, and typing three letters of its name is the
+    fastest route to it that does not involve remembering where it sits.
+    """
 
     def __init__(self, parent, app_space) -> None:
         super().__init__(parent, title="Favourite podcasts",
@@ -344,12 +410,32 @@ class FavoritesDialog(wx.Dialog):
         help_mod.install(self)
         self.library = favorites_mod.Library(app=app_space)
         self.chosen: favorites_mod.Favorite | None = None
+        #: The favourites currently listed, which is all of them until the
+        #: filter box narrows it. Row numbers index this, never the library.
+        self._shown: list = []
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(wx.StaticText(
             self,
             label="Bookmarks, not subscriptions: nothing here is checked or\n"
                   "downloaded for you."), 0, wx.ALL, 10)
+
+        # Label before control, so a screen reader pairs the two.
+        filter_row = wx.BoxSizer(wx.HORIZONTAL)
+        filter_row.Add(wx.StaticText(self, label="F&ilter:"), 0,
+                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.filter_ctrl = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.filter_ctrl.SetToolTip(
+            "Narrows the list to shows whose name or author contains what "
+            "you type. Leave it empty to see all of them. Enter moves to "
+            "the list."
+        )
+        self.filter_ctrl.SetHint("part of a name")
+        set_accessible_name(self.filter_ctrl, "Filter favourites")
+        self.filter_ctrl.Bind(wx.EVT_TEXT, lambda _e: self.refresh(keep_filter=True))
+        self.filter_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self.list.SetFocus())
+        filter_row.Add(self.filter_ctrl, 1)
+        root.Add(filter_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         list_label = wx.StaticText(self, label="&Favourites:")
         root.Add(list_label, 0, wx.LEFT | wx.RIGHT, 10)
@@ -359,13 +445,28 @@ class FavoritesDialog(wx.Dialog):
             self.list.AppendColumn(heading, width=width)
         self.list.SetToolTip(
             "The shows you have marked. Arrow through them; Enter takes the "
-            "highlighted one back to the main window."
+            "highlighted one back to the main window, and Delete takes it "
+            "off this list without touching anything you have harvested."
         )
         set_accessible_name(self.list, "Favourite podcasts")
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, lambda _e: self.on_use())
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, lambda _e: self._on_selected())
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, lambda _e: self._on_selected())
+        self.list.Bind(wx.EVT_KEY_DOWN, self._on_list_key)
+        self.list.Bind(wx.EVT_CONTEXT_MENU, self._on_context_menu)
         root.Add(self.list, 1, wx.EXPAND | wx.ALL, 10)
+
+        # The feed address is the thing you cannot see in a column and the
+        # thing you occasionally need. Read-only and multi-line, so it is a
+        # real tab stop that can be read a line at a time.
+        self.detail = wx.TextCtrl(
+            self, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        self.detail.SetToolTip(
+            "What is known about the highlighted show, including its feed "
+            "address. Read-only.")
+        set_accessible_name(self.detail, "About the highlighted show")
+        size_for_text(self.detail, lines=3, chars=60)
+        root.Add(self.detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         self.status = wx.StaticText(self, label="")
         set_accessible_name(self.status, "Favourites status")
@@ -396,23 +497,57 @@ class FavoritesDialog(wx.Dialog):
 
         self.SetEscapeId(wx.ID_CANCEL)
         self.SetSizer(root)
-        self.SetMinSize(wx.Size(720, 480))
+        self.SetMinSize(wx.Size(720, 560))
         self.Fit()
         self.CentreOnParent()
         self.refresh()
         self.list.SetFocus()
 
-    def refresh(self) -> None:
-        entries = self.library.refresh()
+    def _on_list_key(self, event) -> None:
+        """Delete takes a show off the list; everything else is the list's.
+
+        Delete rather than a confirmation dialog because nothing is
+        destroyed: the entry is a bookmark, the audio and transcripts stay
+        exactly where they are, and the status line says so afterwards.
+        """
+        if event.GetKeyCode() == wx.WXK_DELETE:
+            self.on_remove()
+            return
+        event.Skip()
+
+    def refresh(self, *, keep_filter: bool = False) -> None:
+        """Rebuild the list from the library, through the filter box.
+
+        *keep_filter* only says whether the library is re-read from disk;
+        the filter is always applied. Re-reading on every keystroke would
+        hit the disk for each letter typed.
+        """
+        entries = self.library.entries if keep_filter else self.library.refresh()
+        needle = self.filter_ctrl.GetValue().strip().lower()
+        self._shown = [
+            favorite for favorite in entries
+            if not needle
+            or needle in favorite.title.lower()
+            or needle in favorite.artist.lower()
+        ]
         self.list.DeleteAllItems()
-        for favorite in entries:
+        for favorite in self._shown:
             row = self.list.InsertItem(self.list.GetItemCount(), favorite.title)
             self.list.SetItem(row, 1, favorite.artist)
             self.list.SetItem(row, 2, favorite.added_at[:10])
-        if entries:
-            self.status.SetLabel(f"{len(entries)} favourite(s).")
+        if self._shown:
+            total = len(entries)
+            self.status.SetLabel(
+                f"{len(self._shown)} of {total} favourite(s) shown."
+                if needle else f"{total} favourite(s).")
             self.list.Select(0)
             self.list.Focus(0)
+        elif entries:
+            # Filtered down to nothing: say why, or it reads as an empty
+            # list of favourites and looks like they were lost.
+            self.status.SetLabel(
+                f"No favourite matches \"{self.filter_ctrl.GetValue().strip()}\". "
+                f"Clear the filter to see all {len(entries)}.")
         else:
             self.status.SetLabel(
                 "Nothing here yet. Find a podcast, then use Add to favourites.")
@@ -420,13 +555,39 @@ class FavoritesDialog(wx.Dialog):
 
     def selected(self) -> favorites_mod.Favorite | None:
         row = self.list.GetFirstSelected()
-        entries = self.library.entries
-        return entries[row] if 0 <= row < len(entries) else None
+        return self._shown[row] if 0 <= row < len(self._shown) else None
 
     def _on_selected(self) -> None:
         found = self.selected()
         self.use_btn.Enable(found is not None)
         self.remove_btn.Enable(found is not None)
+        if found is None:
+            self.detail.SetValue("")
+            return
+        lines = [found.title]
+        if found.artist:
+            lines.append(f"By: {found.artist}")
+        lines.append(f"Feed: {found.feed_url}")
+        if found.homepage:
+            lines.append(f"Page: {found.homepage}")
+        lines.append(f"Added: {found.added_at[:10]}")
+        self.detail.SetValue("\n".join(lines))
+        self.detail.SetInsertionPoint(0)
+
+    def _on_context_menu(self, _evt) -> None:
+        found = self.selected()
+        popup_podcast_menu(
+            self, self.list,
+            feed_url=getattr(found, "feed_url", "") or "",
+            homepage=getattr(found, "homepage", "") or "",
+            extra=(
+                ("&Use this podcast",
+                 "Take this show's feed back to the main window",
+                 self.on_use, found is not None),
+                ("&Remove from favourites",
+                 "Take this show off the list. Nothing harvested is touched.",
+                 self.on_remove, found is not None),
+            ))
 
     def on_use(self) -> None:
         found = self.selected()
@@ -474,6 +635,9 @@ class OpmlImportDialog(wx.Dialog):
         self._shows: list = []
         self._worker: threading.Thread | None = None
         self._alive = True
+        #: The last key pressed in the list, so an activation caused by Space
+        #: can be told from one caused by a double-click. See _on_activated.
+        self._last_key: int | None = None
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(wx.StaticText(
@@ -534,15 +698,18 @@ class OpmlImportDialog(wx.Dialog):
         self.list.AppendColumn("Show", width=640)
         self.list.SetToolTip(
             "Every show in the list. Space checks or unchecks the one you "
-            "are on; Enter takes it straight to the main window instead. "
-            "Check the ones you want and press Add checked to favourites."
+            "are on, and stays here so you can work down the list. Enter "
+            "adds everything you have checked. To take one show straight to "
+            "the main window without saving it, use Use this one now."
         )
         set_accessible_name(self.list, "Shows in this list")
-        self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, lambda _e: self.on_use())
+        self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_activated)
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, lambda _e: self._on_selected())
         self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, lambda _e: self._on_selected())
-        # The running count is the only feedback a check gives beyond the
-        # row's own announcement, so it follows every change.
+        self.list.Bind(wx.EVT_KEY_DOWN, self._on_list_key)
+        self.list.Bind(wx.EVT_CONTEXT_MENU, self._on_context_menu)
+        # The count on the Add button follows every change, so tabbing to it
+        # says how many are about to be added.
         self.list.Bind(wx.EVT_LIST_ITEM_CHECKED, lambda _e: self._say_checked())
         self.list.Bind(wx.EVT_LIST_ITEM_UNCHECKED, lambda _e: self._say_checked())
         root.Add(self.list, 1, wx.EXPAND | wx.ALL, 10)
@@ -584,8 +751,15 @@ class OpmlImportDialog(wx.Dialog):
         self.add_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_add())
         self.add_btn.Enable(False)
         row.Add(self.add_btn, 0, wx.RIGHT, 6)
+        # The primary action, so Enter anywhere in the window runs it -- the
+        # list handles Enter itself, and this covers everywhere else.
+        self.add_btn.SetDefault()
 
-        self.use_btn = wx.Button(self, wx.ID_OK, label="&Use this one now")
+        # Deliberately not wx.ID_OK: that would make "use one show and
+        # leave" the dialog's affirmative action, so Enter in any field
+        # would close a window whose whole purpose is checking boxes. It
+        # ends the dialog itself, in on_use.
+        self.use_btn = wx.Button(self, label="&Use this one now")
         self.use_btn.SetToolTip(
             "Takes the highlighted show's feed back to the main window, "
             "without saving it as a favourite.")
@@ -679,6 +853,64 @@ class OpmlImportDialog(wx.Dialog):
     def _label(self, show) -> str:
         return f"{show.title} - {show.summary()}" if show.summary() else show.title
 
+    # -- keys ---------------------------------------------------------------
+
+    def _on_list_key(self, event) -> None:
+        """Remember the key, and give Enter the primary action.
+
+        Enter runs Add checked to favourites -- the thing this window is for
+        -- rather than leaving for the main window. Checking off a list and
+        then being thrown out of it by the most ordinary key on the keyboard
+        is not a choice anybody makes on purpose.
+
+        The event is skipped so the list still gets its own key handling:
+        arrows, type-ahead, and Space toggling the check natively.
+        """
+        self._last_key = event.GetKeyCode()
+        if self._last_key in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.on_add()
+            return          # not skipped: no activation, so the window stays
+        event.Skip()
+
+    def _on_context_menu(self, _evt) -> None:
+        show = self.selected()
+        row = self.list.GetFirstSelected()
+        checked = row >= 0 and self.list.IsItemChecked(row)
+        popup_podcast_menu(
+            self, self.list,
+            feed_url=getattr(show, "feed_url", "") or "",
+            homepage=getattr(show, "homepage", "") or "",
+            extra=(
+                ("&Uncheck this show" if checked else "&Check this show",
+                 "Whether this show is one of the ones to be added",
+                 lambda: self._toggle_selected(), show is not None),
+                ("&Use this one now",
+                 "Take this show's feed back to the main window, without "
+                 "saving it as a favourite",
+                 self.on_use, show is not None),
+            ))
+
+    def _toggle_selected(self) -> None:
+        row = self.list.GetFirstSelected()
+        if row < 0:
+            return
+        self.list.CheckItem(row, not self.list.IsItemChecked(row))
+        self._say_checked()
+
+    def _on_activated(self, _evt) -> None:
+        """Double-click uses a show. Space must not.
+
+        On Windows a checkable list reports Space as an *activation* as well
+        as a check, so binding activation straight to "use this one" made
+        every keystroke that ticked a box also close the window. The key
+        recorded a moment earlier is what tells the two apart.
+        """
+        if self._last_key == wx.WXK_SPACE:
+            self._last_key = None
+            return
+        self._last_key = None
+        self.on_use()
+
     # -- checking ---------------------------------------------------------
 
     def _checked_indexes(self) -> list[int]:
@@ -709,9 +941,27 @@ class OpmlImportDialog(wx.Dialog):
         already = len(self._shows) - len(wanted)
         note = f" {already} already in your favourites." if already else ""
         self.status.SetLabel(f"{len(wanted)} checked.{note}")
+        self._sync_add_button()
 
     def _say_checked(self) -> None:
         self.status.SetLabel(f"{len(self._checked_indexes())} checked.")
+        self._sync_add_button()
+
+    def _sync_add_button(self) -> None:
+        """Put the count on the button, so Tab lands on what it will do.
+
+        A status line change is silent to a screen reader on a control
+        nobody is focused on. A button's own label is not: arriving at "Add
+        12 checked to favourites" answers "how many did I check?" without
+        going back to count them. Disabled at zero, because a button that
+        can only report failure is not worth a Tab stop.
+        """
+        count = len(self._checked_indexes())
+        self.add_btn.SetLabel(
+            f"Add {count} checked to &favourites" if count
+            else "Add checked to &favourites")
+        self.add_btn.Enable(count > 0)
+        self.Layout()
 
     # -- acting ----------------------------------------------------------
 
