@@ -37,6 +37,7 @@ _SNAPSHOT = _ROOT.parent / "tests" / "help_inventory.json"
 SCAN_FILES: tuple[str, ...] = (
     "gui.py", "editor.py", "player.py", "reader.py", "discover.py",
     "status_bar.py", "chapter_jump.py", "transcript_search.py",
+    "model_download.py",
 )
 
 #: wx classes a person can focus and therefore press F1 on. `StaticText` is
@@ -120,7 +121,32 @@ def _helped_in_scope(scope: ast.AST, targets: set[str]) -> bool:
     return False
 
 
-def _wx_class(call: ast.Call) -> str:
+def _wx_subclasses(tree: ast.AST) -> dict[str, str]:
+    """Local classes that extend a helpable wx control: name -> wx class.
+
+    A control built through a subclass is still a control a person focuses
+    and presses F1 on, and it would otherwise leave the gate's sight the
+    moment somebody wrote ``class MyButton(wx.Button)``. That is not
+    hypothetical: taking the status bar's cells out of the tab order needed
+    exactly such a subclass, and the gate quietly stopped counting them.
+
+    One level deep, which is all this codebase has and all a rule anybody
+    can remember should need.
+    """
+    found: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for base in node.bases:
+            if (isinstance(base, ast.Attribute)
+                    and isinstance(base.value, ast.Name)
+                    and base.value.id == "wx"
+                    and base.attr in HELPABLE):
+                found[node.name] = base.attr
+    return found
+
+
+def _wx_class(call: ast.Call, subclasses: dict[str, str] | None = None) -> str:
     """``wx.Button`` -> ``Button``; anything else -> ""."""
     func = call.func
     if (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
@@ -129,6 +155,11 @@ def _wx_class(call: ast.Call) -> str:
     if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Attribute):
         # wx.media.MediaCtrl and friends: not focusable help targets.
         return ""
+    # A local subclass of a wx control, and a variable holding one -- the
+    # status bar builds its cells through `button_class(...)` so the class
+    # can be made against the injected wx module.
+    if isinstance(func, ast.Name) and subclasses:
+        return subclasses.get(func.id, "")
     return ""
 
 
@@ -138,6 +169,18 @@ def scan_file(path: Path) -> list[Site]:
     module = path.name
     sites: list[Site] = []
     counters: dict[str, int] = {}
+    subclasses = _wx_subclasses(tree)
+    # A factory returning a subclass is the same thing once removed: the
+    # status bar builds one so the class can be made against the injected
+    # wx module. Treat the variable it is assigned to as that class.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            name = (func.attr if isinstance(func, ast.Attribute)
+                    else getattr(func, "id", ""))
+            if name.endswith("button_class") or name.endswith("_cell_button_class"):
+                for target in _target_names(node):
+                    subclasses[target] = "Button"
 
     for scope in ast.walk(tree):
         if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -155,7 +198,7 @@ def scan_file(path: Path) -> list[Site]:
                 call = statement.value
             if call is None:
                 continue
-            cls = _wx_class(call)
+            cls = _wx_class(call, subclasses)
             if cls not in HELPABLE:
                 continue
             inline_kw = any(

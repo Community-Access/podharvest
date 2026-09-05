@@ -194,6 +194,10 @@ a = Analysis(
         "podharvest.positions",
         "podharvest.reuse",
         "podharvest.reuse_core",
+        # Reached only through lazy imports inside handlers, so the tracer
+        # never sees it and a build without it loses every timing feature.
+        "podharvest.timing_core",
+        "podharvest.model_download",
         "podharvest.tags",
     ],
     hookspath=[],

@@ -87,6 +87,32 @@ class StatusBar:
 
     # -- construction -----------------------------------------------------
 
+    def _cell_button_class(self) -> Any:
+        """A button that F6 can reach but Tab cannot.
+
+        The bar is a review surface, not a step in the workflow. Left in the
+        tab order it adds five stops between the last real control and the
+        end of the window, every time round, for information the user asked
+        to be able to *check* rather than to walk through. F6 is the way in
+        and out, which is where a status bar belongs on Windows.
+
+        `AcceptsFocusFromKeyboard` is the right lever: it takes the control
+        out of tab traversal while leaving `SetFocus` working, so F6 and the
+        arrow keys inside the bar are unaffected. Built lazily against the
+        injected `wx` so the module stays importable without it.
+        """
+        wx = self._wx
+        cached = getattr(self, "_button_class", None)
+        if cached is not None:
+            return cached
+
+        class _StatusCellButton(wx.Button):
+            def AcceptsFocusFromKeyboard(self):  # noqa: N802 - wx API casing
+                return False
+
+        self._button_class = _StatusCellButton
+        return _StatusCellButton
+
     def build(self, parent: Any) -> Any:
         """Build the bar as a child of *parent* and return the panel."""
         wx = self._wx
@@ -96,9 +122,10 @@ class StatusBar:
         self._panel = panel
         self._cells = []
         context_event = getattr(wx, "EVT_CONTEXT_MENU", None)
+        button_class = self._cell_button_class()
         for spec in self._specs:
-            button = wx.Button(panel, label=self._label(spec),
-                               style=wx.BU_EXACTFIT)
+            button = button_class(panel, label=self._label(spec),
+                                  style=wx.BU_EXACTFIT)
             button.SetName(self._name(spec))
             button.SetHelpText(spec.help)
             button.SetToolTip(spec.help)

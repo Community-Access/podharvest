@@ -1734,7 +1734,9 @@ class MainFrame(wx.Frame):
         # announcement to happen to arrive.
         # Kept as an attribute: local mode relabels it "Files", because the
         # rows there are recordings you already had, not episodes of anything.
-        self.episodes_label = wx.StaticText(panel, label="&Episodes:")
+        # No mnemonic: Alt+E opens the Episode menu, and Ctrl+E already
+        # moves focus here. See the note on chk_transcribe.
+        self.episodes_label = wx.StaticText(panel, label="Episodes:")
         outer.Add(self.episodes_label, 0, wx.LEFT | wx.RIGHT, 10)
         self.episode_list = wx.ListCtrl(
             panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SUNKEN)
@@ -2392,7 +2394,7 @@ class MainFrame(wx.Frame):
         # The list holds files now, not episodes of anything, and a screen
         # reader says this label and name on every visit -- so both have to
         # tell the truth about what the rows are.
-        self.episodes_label.SetLabel("&Files:" if local else "&Episodes:")
+        self.episodes_label.SetLabel("Files:" if local else "Episodes:")
         set_accessible_name(self.episode_list, "Files" if local else "Episodes")
         self.episode_list.SetToolTip(
             "The files you added and what each one has. Arrow up and down "
@@ -2553,7 +2555,8 @@ class MainFrame(wx.Frame):
         box.Add(row, 0, wx.EXPAND | wx.ALL, 8)
 
         # Label before control, so a screen reader pairs the two.
-        box.Add(wx.StaticText(holder, label="S&hows in this list:"), 0,
+        # Alt+L, not Alt+H: H belongs to the Help menu.
+        box.Add(wx.StaticText(holder, label="Shows in this &list:"), 0,
                 wx.LEFT | wx.RIGHT, 8)
         self.opml_list = wx.ListCtrl(
             holder, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER
@@ -2649,7 +2652,8 @@ class MainFrame(wx.Frame):
         box.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.browse_btn = wx.Button(holder, label="Show &episodes")
+        # Alt+W, not Alt+E: E belongs to the Episode menu.
+        self.browse_btn = wx.Button(holder, label="Sho&w episodes")
         self.browse_btn.SetToolTip(
             "Reads the feed and lists its episodes below, without "
             "downloading anything. The way to see what a show has "
@@ -2658,7 +2662,9 @@ class MainFrame(wx.Frame):
         self.browse_btn.Bind(wx.EVT_BUTTON, self._on_browse_feed)
         row.Add(self.browse_btn, 0, wx.RIGHT, 6)
 
-        self.fav_btn = wx.Button(holder, label="Fa&vourites...")
+        # No mnemonic: Alt+V opens the View menu, and Ctrl+Shift+K opens
+        # favourites from anywhere.
+        self.fav_btn = wx.Button(holder, label="Favourites...")
         self.fav_btn.SetToolTip(
             "The shows you have marked, to come back to without "
             "searching again. Bookmarks, not subscriptions: nothing "
@@ -3247,7 +3253,13 @@ class MainFrame(wx.Frame):
             "but nothing to listen to or transcribe."
         )
         self.chk_download.SetValue(True)
-        self.chk_transcribe = wx.CheckBox(holder, label="&Transcribe downloaded audio on-device")
+        # The mnemonic is on the n, not the T: Alt+T belongs to the Tools
+        # menu, and a control in the client area wins that contest against
+        # the menu bar. Verified: with "&Transcribe" here, Alt+T toggled this
+        # box instead of opening Tools. None of the five menu letters --
+        # F, V, E, T, H -- may be claimed by a control on this window.
+        self.chk_transcribe = wx.CheckBox(
+            holder, label="Tra&nscribe downloaded audio on-device")
         self.chk_transcribe.SetToolTip(
             "Turns each downloaded episode into a written transcript on this machine. This is "
             "the slow part of a run; the model picker beside it says how slow."
@@ -3442,7 +3454,8 @@ class MainFrame(wx.Frame):
         holder = box.GetStaticBox()
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.hw_text = wx.StaticText(holder, label="Probing hardware...")
-        self._refresh_btn = refresh_btn = wx.Button(holder, label="R&e-detect")
+        # No mnemonic: Alt+E opens the Episode menu, and Ctrl+D does this.
+        self._refresh_btn = refresh_btn = wx.Button(holder, label="Re-detect")
         refresh_btn.SetToolTip(
             "Probes this machine's processor, memory and graphics again, and refreshes which "
             "models it recommends."
@@ -3819,91 +3832,39 @@ class MainFrame(wx.Frame):
         self.download_btn.Enable(not ready and not running)
 
     def _on_download_model(self, _evt=None) -> None:
-        """Fetch the selected model's packages and weights, on a worker thread.
+        """Fetch the selected model, in a window that says what it is doing.
 
-        Deliberately the same calls a run makes, so pressing this and pressing
-        Start cannot end up with different ideas of what "downloaded" means.
+        This used to borrow the run's gauge, blank the episode list and then
+        go quiet for minutes -- the work has two phases and only the second
+        reported anything, so the first looked exactly like a dead button.
+        It has its own window now, which names both phases and always has a
+        most recent line to read.
+
+        Deliberately the same calls a run makes, so pressing this and
+        pressing Start cannot end up with different ideas of what
+        "downloaded" means.
         """
+        from podharvest.model_download import ModelDownloadDialog
+
         choice = self._selected_model()
         if choice is None:
             return
-        if self._worker is not None and self._worker.is_alive():
-            LOG.info("Something is already running; wait for it to finish.")
-            return
-        self.download_btn.Disable()
-        self.start_btn.Disable()
-        # The gauge is the run's, and there is no run: a download that shows
-        # nothing for several minutes is indistinguishable from a dead button,
-        # which is exactly how this was reported.
-        self._reset_progress()
-        self._set_columns(_LIBRARY_COLUMNS)
-        self.model_ready.SetLabel(f"Downloading {choice.model}...")
-        self._set_progress_text(f"Downloading {choice.model}. This is a "
-                                "one-time cost and can take several minutes.")
-        LOG.info("Downloading everything %s needs. This is a one-time cost and "
-                 "can take several minutes.", choice.model)
-        self._worker = threading.Thread(
-            target=self._run_download_worker, args=(choice,), daemon=True)
-        self._worker.start()
-
-    def _on_download_progress(self, percent: float, detail: str,
-                              model: str) -> None:
-        """Move the gauge as a model downloads. Called on the UI thread.
-
-        Rewritten only when the whole number changes: the hub reports every
-        few kilobytes, and a status line that rewrites hundreds of times a
-        second is one a screen reader cannot read at all.
-        """
-        whole = int(max(0.0, min(100.0, percent)))
-        if whole == getattr(self, "_download_percent", -1):
-            return
-        self._download_percent = whole
-        self.progress.SetValue(whole)
-        said = f" - {detail}" if detail else ""
-        self._set_progress_text(f"Downloading {model}: {whole}%{said}")
-
-    def _run_download_worker(self, choice) -> None:
-        from podharvest import acquire
-
-        self._download_percent = -1
-
-        def report(percent: float, detail: str) -> None:
-            self._ui(self._on_download_progress, percent, detail, choice.model)
-
-        ok = True
+        dlg = ModelDownloadDialog(self, self.app_space, choice,
+                                  announce=self._announce_playback)
         try:
-            if not acquire.ensure_engine_packages(self.app_space, choice.engine):
-                ok = False
-                LOG.error("Could not set up the %s engine. The lines above say "
-                          "why. Nothing was changed.", choice.engine)
-            else:
-                acquire.acquire_asr_model(
-                    self.app_space, choice, on_progress=report)
-        except Exception as exc:  # noqa: BLE001 - surfaced to the log pane
-            ok = False
-            LOG.exception("The download stopped with an error: %s", exc)
+            dlg.start()
+            dlg.ShowModal()
+            succeeded = dlg.succeeded
         finally:
-            wx.CallAfter(self._finish_download, ok, choice)
-
-    def _finish_download(self, ok: bool, choice) -> None:
-        self._worker = None
-        self.start_btn.Enable()
-        self.progress.SetValue(100 if ok else 0)
-        self._set_progress_text(
-            f"{choice.model} is ready." if ok else
-            f"{choice.model} could not be downloaded. The activity log says why.")
+            dlg.Destroy()
         self._refresh_model_ready()
-        # Something just became downloaded, which can turn "Already
+        # Something may have just become downloaded, which can turn "Already
         # downloaded" from an impossible filter into a useful one.
         self._refresh_source_options()
-        if ok:
+        if succeeded:
             LOG.info("%s is ready. Press Start when you are.", choice.model)
-        # Focus goes back to the button that started this, which is where it
-        # was: a download that finishes silently with focus somewhere else is
-        # a download nobody knows finished.
-        target = self.start_btn if ok else self.download_btn
-        if target.IsEnabled():
-            target.SetFocus()
+            if self.start_btn.IsEnabled():
+                self.start_btn.SetFocus()
 
     def _on_browse_output(self, _evt) -> None:
         with wx.DirDialog(self, "Choose an output folder", defaultPath=self.output_ctrl.GetValue()) as dlg:

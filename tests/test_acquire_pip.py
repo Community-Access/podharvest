@@ -521,12 +521,47 @@ class TestTheReadinessReadout:
         assert "running" in source, "and never while a run owns the app space"
 
     def test_downloading_uses_the_same_calls_a_run_does(self, frame):
-        """Otherwise Download and Start could disagree about "downloaded"."""
+        """Otherwise Download and Start could disagree about "downloaded".
+
+        The work moved into `model_download.ModelDownloadDialog` so it could
+        report both of its phases; the rule it has to keep did not move.
+        """
         import inspect
 
-        source = inspect.getsource(frame._run_download_worker.__func__)
+        from podharvest.model_download import ModelDownloadDialog
+
+        source = inspect.getsource(ModelDownloadDialog._run)
         assert "ensure_engine_packages" in source
         assert "acquire_asr_model" in source
+
+    def test_both_phases_of_a_download_are_reported(self, frame):
+        """The silence in phase one is what made this look like a dead button.
+
+        Setting up the engine's Python packages produces no percentage and
+        can take minutes. Naming the step is the only thing standing between
+        that and "nothing is happening".
+        """
+        import inspect
+
+        from podharvest.model_download import ModelDownloadDialog
+
+        source = inspect.getsource(ModelDownloadDialog._run)
+        assert "Step 1 of 2" in source
+        assert "Step 2 of 2" in source
+        assert "progress=" in source, (
+            "ensure_engine_packages takes a progress callback and the window "
+            "must pass one, or phase one reports nothing")
+
+    def test_downloading_leaves_the_run_gauge_alone(self, frame):
+        """The main window's gauge is for runs. A download is not a run."""
+        import inspect
+
+        source = inspect.getsource(frame._on_download_model.__func__)
+        assert "ModelDownloadDialog" in source
+        for borrowed in ("self.progress.SetValue", "_set_columns",
+                         "_reset_progress"):
+            assert borrowed not in source, (
+                f"the download must not touch {borrowed}")
 
 
 class TestTheModelSourceFilter:

@@ -90,6 +90,25 @@ class Hardware:
             return round(gpu.vram_bytes * 0.85 / GB, 1)
         return round(max(self.ram_available_bytes, self.ram_total_bytes * 0.6) / GB, 1)
 
+    @property
+    def model_budget_gb(self) -> float:
+        """How large a model this machine can hold, ignoring today's weather.
+
+        Deliberately *not* `usable_accel_memory_gb`, which folds in how much
+        memory happens to be free at this instant. That is the right figure
+        for warning somebody that a run may struggle right now; it is the
+        wrong one for deciding what to offer, because it made the model list
+        change between one launch and the next depending on what else was
+        open. A machine's capacity does not move, so neither should its
+        list.
+        """
+        gpu = self.best_gpu
+        if self.accelerator == "metal":
+            return round(self.ram_total_bytes * 0.66 / GB, 1)
+        if gpu and gpu.vram_bytes:
+            return round(gpu.vram_bytes * 0.85 / GB, 1)
+        return round(self.ram_total_bytes * 0.6 / GB, 1)
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.update(
@@ -615,11 +634,15 @@ def available_models(hw: Hardware, app=None, *, include_cloud: bool = False) -> 
 
 def _local_models(hw: Hardware) -> list[ModelChoice]:
     """All ASR models that should comfortably fit the detected hardware."""
-    budget = max(hw.usable_accel_memory_gb, 1.0)
+    # One budget for every family, and one that does not move. Sizing the
+    # offer against free memory made models appear and disappear between
+    # launches depending on what else was open, which reads as the program
+    # losing them. The model most often lost was Parakeet ONNX -- the
+    # CPU-friendly one, on the machines with no GPU that need it most.
+    budget = max(hw.model_budget_gb, 1.0)
     choices = [c for c in VOSK_CHOICES + MOONSHINE_CHOICES if c.min_ram_gb <= budget]
     choices += [c for c in WHISPER_CHOICES if c.min_ram_gb <= budget]
-    ram_budget = max(hw.ram_available_bytes / GB, 1.0)
-    choices += [c for c in PARAKEET_ONNX_CHOICES if c.min_ram_gb <= ram_budget]
+    choices += [c for c in PARAKEET_ONNX_CHOICES if c.min_ram_gb <= budget]
     if hw.has_cuda:
         choices += [c for c in PARAKEET_CHOICES + CANARY_CHOICES if c.min_ram_gb <= budget]
     return choices or [VOSK_CHOICES[0]]
