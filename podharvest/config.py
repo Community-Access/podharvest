@@ -124,6 +124,12 @@ class Settings:
     # Remember the playhead per file and offer it back next time. An hour-long
     # episode is not heard in one sitting.
     remember_playback_position: bool = True
+    #: Move the reader's caret to keep pace with playback. Off by default
+    #: and deliberately so: a caret that moves on its own takes the text out
+    #: from under somebody reading at their own pace, and for a screen
+    #: reader user that is not a nicety but a loss of control. Only ever
+    #: turned on from Settings.
+    follow_along: bool = False
     # The speeds the player offers. Yours to change: people who listen at 3x
     # are not an edge case, and people who need 0.5x to follow a fast speaker
     # are the reason this is a list rather than a pair of buttons. 1.0 is

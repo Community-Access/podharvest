@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("wx")  # the module under test builds wx controls
 from podharvest.transcript_search import (
     MAX_RESULTS,
+    EpisodeMatch,
     search_transcripts,
 )
 
@@ -76,6 +77,53 @@ class TestMatching:
         episodes = _library(tmp_path, **{
             f"ep{n}": "the phrase" for n in range(MAX_RESULTS + 5)})
         assert len(search_transcripts(episodes, "phrase")) == MAX_RESULTS
+
+
+class TestMatchesCarryATime:
+    """Finding a phrase should end with hearing it, not with reading a row."""
+
+    class _Episode:
+        show, title = "A Show", "Ep 1"
+        transcript = None
+
+    def _episode(self, transcript):
+        episode = self._Episode()
+        episode.transcript = transcript
+        return episode
+
+    def test_a_match_in_a_timestamped_transcript_knows_its_time(self, tmp_path):
+        transcript = tmp_path / "ep.md"
+        transcript.write_text(
+            "[00:00:01.000] nothing here\n"
+            "[00:01:05.000] the badger census showed\n",
+            encoding="utf-8")
+        found = search_transcripts([self._episode(transcript)], "badger census")
+        assert len(found) == 1
+        assert found[0].start_ms == 65_000
+
+    def test_a_transcript_without_times_still_matches(self, tmp_path):
+        """No timings is not a failure; it just cannot offer to play."""
+        transcript = tmp_path / "ep.md"
+        transcript.write_text("the badger census showed\n", encoding="utf-8")
+        found = search_transcripts([self._episode(transcript)], "badger")
+        assert len(found) == 1
+        assert found[0].start_ms is None
+
+    def test_the_row_says_when_it_knows(self, tmp_path):
+        match = EpisodeMatch(episode=self._Episode(), count=1, snippet="...",
+                             start_ms=65_000)
+        assert match.when() == "01:05"
+        assert "at 01:05" in match.describe()
+
+    def test_the_row_says_nothing_about_time_when_it_does_not_know(self):
+        match = EpisodeMatch(episode=self._Episode(), count=1, snippet="...")
+        assert match.when() == ""
+        assert " at " not in match.describe()
+
+    def test_an_hour_long_position_reads_as_hours(self):
+        match = EpisodeMatch(episode=self._Episode(), count=1, snippet="...",
+                             start_ms=3_725_000)
+        assert match.when() == "1:02:05"
 
 
 class TestTheWindow:

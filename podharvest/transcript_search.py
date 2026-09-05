@@ -38,15 +38,34 @@ MAX_RESULTS = 200
 
 @dataclass
 class EpisodeMatch:
-    """One episode that contains the phrase, and where it first appears."""
+    """One episode with the phrase in it, where it appears, and when.
+
+    `start_ms` is None when the transcript carries no timings at all -- an
+    older run with timestamps switched off, or a publisher's plain-text
+    transcript. The row then simply does not offer to play, rather than
+    offering and landing at the beginning.
+    """
 
     episode: object  # a library.LibraryEpisode
     count: int
     snippet: str
+    start_ms: int | None = None
+
+    def when(self) -> str:
+        """The position as a clock time, or "" when it is not known."""
+        if self.start_ms is None:
+            return ""
+        total = max(0, self.start_ms) // 1000
+        hours, rest = divmod(total, 3600)
+        minutes, seconds = divmod(rest, 60)
+        return (f"{hours}:{minutes:02d}:{seconds:02d}" if hours
+                else f"{minutes:02d}:{seconds:02d}")
 
     def describe(self) -> str:
         times = "once" if self.count == 1 else f"{self.count} times"
-        return (f"{self.episode.show} - {self.episode.title} - {times}: "
+        stamp = self.when()
+        when = f" at {stamp}" if stamp else ""
+        return (f"{self.episode.show} - {self.episode.title} - {times}{when}: "
                 f"...{self.snippet}...")
 
 
@@ -55,6 +74,26 @@ def _snippet(text: str, position: int, query_length: int) -> str:
     start = max(0, position - SNIPPET_CHARS // 2)
     end = min(len(text), position + query_length + SNIPPET_CHARS // 2)
     return re.sub(r"\s+", " ", text[start:end]).strip()
+
+
+def _time_of(path: Path, needle: str) -> int | None:
+    """Where in the audio *needle* is first said, or None if unknowable.
+
+    Only called for transcripts that already matched, so a search across a
+    large library does not open a timing file for every episode it rejects.
+
+    The offset from the file itself cannot be reused: the file includes the
+    timestamp markers, and the timeline's text has them stripped, so the two
+    disagree by however many markers came before the match. The phrase is
+    found again in the timeline's own text instead.
+    """
+    from podharvest import timing_core
+
+    timeline = timing_core.load_timeline(path)
+    if timeline.is_empty():
+        return None
+    position = timeline.text().lower().find(needle)
+    return timeline.time_at_char(position) if position >= 0 else None
 
 
 def search_transcripts(episodes, query: str) -> list[EpisodeMatch]:
@@ -88,7 +127,8 @@ def search_transcripts(episodes, query: str) -> list[EpisodeMatch]:
         first = lowered.find(needle)
         found.append(EpisodeMatch(
             episode=episode, count=count,
-            snippet=_snippet(text, first, len(needle))))
+            snippet=_snippet(text, first, len(needle)),
+            start_ms=_time_of(path, needle)))
         if len(found) >= MAX_RESULTS:
             LOG.info("Stopping at %d matching episodes; narrow the search "
                      "to see the rest.", MAX_RESULTS)
@@ -99,13 +139,16 @@ def search_transcripts(episodes, query: str) -> list[EpisodeMatch]:
 class TranscriptSearchDialog(wx.Dialog):
     """Search every transcript; Enter opens the match in the reader."""
 
-    def __init__(self, parent, output_dir: Path) -> None:
+    def __init__(self, parent, output_dir: Path, *, on_cue=None) -> None:
         super().__init__(parent, title="Search all transcripts",
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         help_mod.install(self)
         self.output_dir = Path(output_dir)
         self._matches: list[EpisodeMatch] = []
         self._alive = True
+        # Given by the main window so a match can cue the transport there.
+        # None when nobody is listening, which is how the tests build it.
+        self._on_cue = on_cue
 
         root = wx.BoxSizer(wx.VERTICAL)
         find_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -217,6 +260,12 @@ class TranscriptSearchDialog(wx.Dialog):
             return
         from podharvest.reader import TranscriptDialog
 
+        # Cue the audio before the reader opens, so the episode is already
+        # sitting at the phrase when the reader is closed again. Cued and
+        # not started: audio beginning unasked, over a screen reader still
+        # reading the row you chose, is startling.
+        if match.start_ms is not None and self._on_cue is not None:
+            self._on_cue(match.episode, match.start_ms)
         dlg = TranscriptDialog(
             self, match.episode.transcript, title=match.episode.title,
             find=self.query_ctrl.GetValue().strip())

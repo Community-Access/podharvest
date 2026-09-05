@@ -477,6 +477,18 @@ class SettingsDialog(wx.Dialog):
             "time, because finishing is not a place to come back to."
         )
         box.Add(self.chk_remember_position, 0, wx.ALL, 6)
+
+        self.chk_follow_along = wx.CheckBox(
+            holder, label="Move the transcript caret to &follow playback")
+        self.chk_follow_along.SetValue(self.settings.follow_along)
+        self.chk_follow_along.SetToolTip(
+            "Off unless you turn it on. With this on, a transcript open "
+            "while an episode plays moves its caret to the sentence being "
+            "spoken, so you can read along. Only the caret moves, and only "
+            "when the sentence changes, so it does not interrupt you "
+            "mid-word. Leave it off to read at your own pace."
+        )
+        box.Add(self.chk_follow_along, 0, wx.ALL, 6)
         return box
 
     def _build_mai_settings(self) -> wx.StaticBoxSizer:
@@ -920,6 +932,7 @@ class SettingsDialog(wx.Dialog):
         settings.skip_back_ms = self.skip_back_ctrl.GetValue() * 1000
         settings.skip_forward_ms = self.skip_forward_ctrl.GetValue() * 1000
         settings.remember_playback_position = self.chk_remember_position.GetValue()
+        settings.follow_along = self.chk_follow_along.GetValue()
         settings.playback_rates = config_mod.clean_rates(
             _parse_rates(self.rates_ctrl.GetValue()))
         settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()
@@ -1524,11 +1537,48 @@ class MainFrame(wx.Frame):
         from podharvest.transcript_search import TranscriptSearchDialog
 
         output = Path(self.output_ctrl.GetValue().strip() or ".")
-        dlg = TranscriptSearchDialog(self, output)
+        dlg = TranscriptSearchDialog(self, output, on_cue=self._cue_episode_at)
         try:
             dlg.ShowModal()
         finally:
             dlg.Destroy()
+
+    def _cue_episode_at(self, episode, ms: int) -> None:
+        """Load *episode* and put its playhead at *ms*, without starting it.
+
+        Finding a phrase should end with being able to hear it. Cued rather
+        than played: audio starting unasked, over a screen reader that is
+        still reading the row you chose, is startling -- and the log line
+        says which key starts it.
+        """
+        audio = getattr(episode, "audio", None)
+        if audio is None or not getattr(episode, "has_audio", False):
+            return
+        if self._loaded_audio_path != audio and not self.player.load(audio):
+            return
+        self._loaded_audio_title = getattr(episode, "title", "")
+        self._loaded_audio_path = audio
+        self.player.Enable(True)
+        self.player.seek_to(ms)
+        where = self._spoken_position(ms)
+        self.now_playing.SetLabel(
+            f"Cued: {self._loaded_audio_title} at {where}")
+        LOG.info("Cued '%s' at %s. Press Play, or Ctrl+P, to hear it.",
+                 self._loaded_audio_title, where)
+
+    @staticmethod
+    def _spoken_position(ms: int) -> str:
+        """A position as it should be read aloud, not as a code."""
+        total = max(0, ms) // 1000
+        hours, rest = divmod(total, 3600)
+        minutes, seconds = divmod(rest, 60)
+        parts = []
+        if hours:
+            parts.append(f"{hours} hour" + ("s" if hours != 1 else ""))
+        if minutes:
+            parts.append(f"{minutes} minute" + ("s" if minutes != 1 else ""))
+        parts.append(f"{seconds} second" + ("s" if seconds != 1 else ""))
+        return " ".join(parts)
 
     def _on_read_transcript(self) -> None:
         """Open the selected episode's transcript in the reader."""
@@ -1548,7 +1598,9 @@ class MainFrame(wx.Frame):
                 LOG.info("There is no transcript for %s yet. Press Start to "
                          "make one.", local.path.name)
                 return
-            dlg = TranscriptDialog(self, found, title=local.display_title)
+            dlg = TranscriptDialog(
+                self, found, title=local.display_title,
+                **self._reader_hooks(local.path))
             try:
                 dlg.ShowModal()
             finally:
@@ -1564,11 +1616,36 @@ class MainFrame(wx.Frame):
                      "downloaded audio\" and run it again to make one.",
                      episode.title)
             return
-        dlg = TranscriptDialog(self, episode.transcript, title=episode.title)
+        dlg = TranscriptDialog(self, episode.transcript, title=episode.title,
+                               **self._reader_hooks(episode.audio))
         try:
             dlg.ShowModal()
         finally:
             dlg.Destroy()
+
+    def _reader_hooks(self, audio) -> dict:
+        """What the reader needs from the main window to do its extra jobs.
+
+        Gathered in one place because two call sites open the reader and a
+        third will, and a reader missing one of these silently loses a
+        feature rather than failing.
+        """
+        return {
+            "on_play_at": self._play_episode_at,
+            "audio_path": audio,
+            "follow_along": self.settings.follow_along,
+            "playhead": self.player.playhead_ms,
+        }
+
+    def _play_episode_at(self, ms: int) -> None:
+        """Play the loaded episode from *ms*, loading it first if needed."""
+        if self._loaded_audio_path is None:
+            self._on_play_selected()
+        if self._loaded_audio_path is None:
+            LOG.info("There is no audio for this episode to play.")
+            return
+        self.player.seek_to(ms)
+        self.player.play()
 
     def _on_media_tools(self, _evt) -> None:
         """Answer the question, whichever way the answer goes."""

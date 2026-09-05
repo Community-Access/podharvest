@@ -197,6 +197,7 @@ a = Analysis(
         # Reached only through lazy imports inside handlers, so the tracer
         # never sees it and a build without it loses every timing feature.
         "podharvest.timing_core",
+        "podharvest.clips",
         "podharvest.model_download",
         "podharvest.model_manager",
         "podharvest.tags",
