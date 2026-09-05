@@ -20,6 +20,7 @@ from podharvest import download as download_mod
 from podharvest import feed as feed_mod
 from podharvest import hardware as hardware_mod
 from podharvest import render as render_mod
+from podharvest import timing_core
 from podharvest import transcribe as transcribe_mod
 from podharvest.acquire import ensure_diarization_packages, ensure_engine_packages
 from podharvest.appspace import AppSpace
@@ -250,6 +251,16 @@ def _transcribe_episode(engine, ep, feed_dir: Path, *, format_opt: transcribe_mo
         write_text(out_dir / f"{slug}.srt", transcribe_mod.format_srt(result, format_opt))
     if getattr(settings, "write_vtt", False):
         write_text(out_dir / f"{slug}.vtt", transcribe_mod.format_vtt(result, format_opt))
+
+    # The word timings the engine just produced, kept beside the transcript.
+    # Written unconditionally rather than behind a setting: it is a few
+    # kilobytes, it is what makes "play from this word" and an accurate clip
+    # boundary possible, and a setting nobody knows to turn on would leave
+    # the feature dark for everyone who did not read the release notes.
+    timeline = timing_core.timeline_from_result(result.segments)
+    if not timeline.is_empty():
+        write_text(out_dir / f"{slug}{timing_core.SIDECAR_SUFFIX}",
+                   timing_core.timeline_to_json(timeline))
 
     LOG.info("%stranscript done for '%s'. %s of audio took %s (%.1f times faster than "
              "playing it).", where, ep.title, spoken_duration(result.audio_seconds),

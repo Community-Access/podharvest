@@ -34,3 +34,6 @@ podharvest/audio_tags_core.py -text
 podharvest/audio_tags_core.sha256 -text
 podharvest/reuse_core.py -text
 podharvest/reuse_core.sha256 -text
+
+podharvest/timing_core.py -text
+podharvest/timing_core.sha256 -text

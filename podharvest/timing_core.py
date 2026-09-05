@@ -25,6 +25,8 @@ digests, or the two have silently diverged.
 
 from __future__ import annotations
 
+import json
+import re
 from bisect import bisect_right
 from dataclasses import dataclass, field
 
@@ -170,3 +172,244 @@ class Timeline:
         if first is None or last is None:
             return None
         return (first, last)
+
+
+# -- reading timings back out of what is already on disk -----------------------
+
+#: A segment marker as podHarvest writes it: `[HH:MM:SS.mmm]` or the same in
+#: parentheses, optionally wrapped in markdown bold. Anchored to the start of
+#: the line, because a timestamp quoted mid-sentence is prose, not a marker.
+_MARKER_RE = re.compile(
+    r"^\s*(?:\*\*)?[\[(](\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?[\])](?:\*\*)?\s*")
+
+#: How long the final segment is assumed to run when nothing follows it.
+#: Only ever an end bound for the last line, whose true end is the audio's
+#: length -- which this module deliberately does not know, because it never
+#: opens the audio.
+_TAIL_MS = 5_000
+
+
+def timeline_from_markers(text: str) -> Timeline:
+    """Read the timings podHarvest already wrote into a transcript.
+
+    This is the fallback that matters most. A `.words.json` sidecar only
+    exists for runs made after it was introduced, and captions are optional,
+    but almost every transcript on disk carries these markers because
+    `include_timestamps` defaults to on. Parsing them back means the timing
+    features work on a library somebody harvested a year ago.
+
+    Segment-level only, by nature: the marker says when the segment began
+    and nothing about the words inside it.
+    """
+    starts: list[int] = []
+    bodies: list[str] = []
+    for line in text.splitlines():
+        match = _MARKER_RE.match(line)
+        if match is None:
+            continue
+        hours, minutes, seconds, millis = match.groups()
+        start = (int(hours) * 3_600_000 + int(minutes) * 60_000
+                 + int(seconds) * 1000 + int((millis or "0").ljust(3, "0")))
+        body = line[match.end():].strip()
+        if not body:
+            continue
+        starts.append(start)
+        bodies.append(body)
+    segments = [
+        TimedSegment(
+            text=body,
+            start_ms=start,
+            end_ms=(starts[index + 1] if index + 1 < len(starts)
+                    else start + _TAIL_MS))
+        for index, (start, body) in enumerate(zip(starts, bodies))
+    ]
+    return Timeline(segments=tuple(segments),
+                    source="markers" if segments else "none")
+
+
+#: A WebVTT or SRT timing line. The two formats differ only in whether the
+#: millisecond separator is a dot or a comma, so one pattern reads both.
+_CUE_RE = re.compile(
+    r"^(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*"
+    r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})")
+
+
+def _cue_ms(hours: str, minutes: str, seconds: str, millis: str) -> int:
+    return (int(hours) * 3_600_000 + int(minutes) * 60_000
+            + int(seconds) * 1000 + int(millis))
+
+
+def timeline_from_captions(text: str) -> Timeline:
+    """Read a WebVTT or SRT file into a timeline.
+
+    Better than segment markers where it exists, because a cue carries a
+    real end time rather than one guessed from where the next line starts.
+    `reuse_core` already parses these to strip the timings out; this keeps
+    them, which is the whole point.
+    """
+    segments: list[TimedSegment] = []
+    start = end = 0
+    body: list[str] = []
+    started = False
+
+    def flush() -> None:
+        if started and body:
+            segments.append(TimedSegment(
+                text=" ".join(body).strip(), start_ms=start, end_ms=end))
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        match = _CUE_RE.match(line)
+        if match is not None:
+            flush()
+            body = []
+            groups = match.groups()
+            start = _cue_ms(*groups[:4])
+            end = _cue_ms(*groups[4:])
+            started = True
+            continue
+        if not line or line == "WEBVTT" or line.isdigit():
+            continue
+        if started:
+            body.append(line)
+    flush()
+    return Timeline(segments=tuple(segments),
+                    source="captions" if segments else "none")
+
+
+# -- the sidecar a run writes --------------------------------------------------
+
+#: What the timing sidecar is called, beside the transcript it belongs to.
+#: Two extensions rather than one so it sorts next to `<slug>.md`, is
+#: obviously secondary to it, and leaves `Path.stem` naming the episode.
+SIDECAR_SUFFIX = ".words.json"
+
+#: Bumped only when the shape changes incompatibly. A reader finding a
+#: version it does not know returns an empty timeline and lets the caller
+#: fall back to markers, rather than guessing.
+SIDECAR_VERSION = 1
+
+
+def timeline_to_json(line: Timeline) -> str:
+    """Serialise a timeline for the sidecar beside a transcript."""
+    return json.dumps({
+        "version": SIDECAR_VERSION,
+        "segments": [
+            {
+                "text": segment.text,
+                "start_ms": segment.start_ms,
+                "end_ms": segment.end_ms,
+                "words": [[word.text, word.start_ms, word.end_ms]
+                          for word in segment.words],
+            }
+            for segment in line.segments
+        ],
+    }, ensure_ascii=False)
+
+
+def timeline_from_json(text: str) -> Timeline:
+    """Read a sidecar. Never raises: a damaged file is an empty timeline.
+
+    Anything wrong here means the caller falls back to the markers in the
+    transcript, which is a coarser answer but still a working one. Refusing
+    to open an episode because a secondary file is corrupt would not be.
+    """
+    try:
+        raw = json.loads(text)
+    except (ValueError, TypeError):
+        return Timeline(segments=(), source="none")
+    if not isinstance(raw, dict) or raw.get("version") != SIDECAR_VERSION:
+        return Timeline(segments=(), source="none")
+    segments: list[TimedSegment] = []
+    for entry in raw.get("segments") or []:
+        if not isinstance(entry, dict):
+            continue
+        words = tuple(
+            TimedWord(str(w[0]), int(w[1]), int(w[2]))
+            for w in (entry.get("words") or [])
+            if isinstance(w, (list, tuple)) and len(w) == 3
+        )
+        try:
+            segments.append(TimedSegment(
+                text=str(entry.get("text", "")),
+                start_ms=int(entry.get("start_ms", 0)),
+                end_ms=int(entry.get("end_ms", 0)),
+                words=words))
+        except (TypeError, ValueError):
+            continue
+    return Timeline(segments=tuple(segments),
+                    source="words" if segments else "none")
+
+
+def timeline_from_result(segments) -> Timeline:
+    """Build a timeline from what a transcription engine just returned.
+
+    Takes segment objects duck-typed -- `.start`, `.end`, `.text` in float
+    seconds and `.words` as (start, end, text) tuples -- so this module
+    keeps its promise not to import anything from the app around it.
+    """
+    built: list[TimedSegment] = []
+    for segment in segments or []:
+        words = tuple(
+            TimedWord(str(text), int(float(start) * 1000), int(float(end) * 1000))
+            for start, end, text in (getattr(segment, "words", None) or [])
+        )
+        built.append(TimedSegment(
+            text=str(getattr(segment, "text", "")).strip(),
+            start_ms=int(float(getattr(segment, "start", 0.0)) * 1000),
+            end_ms=int(float(getattr(segment, "end", 0.0)) * 1000),
+            words=words))
+    return Timeline(segments=tuple(built), source="words" if built else "none")
+
+
+# -- the one way in ------------------------------------------------------------
+
+#: How large a timing file may be. The same ceiling the reader and the
+#: search apply to transcripts: past this, it is not what it claims to be.
+MAX_TIMING_BYTES = 16 * 1024 * 1024
+
+
+def _read(path) -> str:
+    """Read a file, or return "" for anything that goes wrong.
+
+    Timings are always secondary to the transcript they describe, so no
+    failure here is worth raising: the caller falls back to a coarser source
+    or to nothing, and the feature says it is being less precise.
+    """
+    try:
+        if path.stat().st_size > MAX_TIMING_BYTES:
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def load_timeline(transcript_path) -> Timeline:
+    """The timings for a transcript, from the best source available.
+
+    In order: the `.words.json` sidecar (word-accurate, written by runs from
+    now on), a `.vtt` or `.srt` beside it (cue-accurate, either the
+    publisher's or podHarvest's own), then the `[HH:MM:SS.mmm]` markers in
+    the transcript itself (segment-accurate, and present in almost every
+    transcript already on disk).
+
+    Always returns a Timeline. `is_empty()` and `source` are how a caller
+    finds out how much it got.
+    """
+    from pathlib import Path
+
+    path = Path(transcript_path)
+    # Built from the stem rather than with `with_suffix`, which would eat a
+    # dotted episode slug: `ep.2.md` must give `ep.2.words.json`.
+    sidecar = path.with_name(path.stem + SIDECAR_SUFFIX)
+    if sidecar.is_file():
+        line = timeline_from_json(_read(sidecar))
+        if not line.is_empty():
+            return line
+    for suffix in (".vtt", ".srt"):
+        captions = path.with_name(path.stem + suffix)
+        if captions.is_file():
+            line = timeline_from_captions(_read(captions))
+            if not line.is_empty():
+                return line
+    return timeline_from_markers(_read(path))
