@@ -498,6 +498,57 @@ four cues you can tell apart by ear while doing something else:
 
 Off by default, because a sound nobody asked for is an intrusion.
 
+### Or have it speak
+
+Since this version podHarvest can say what happened, instead of only chiming.
+**Settings ▸ Announcements** offers three kinds of message, each turned on
+separately, and braille through the same screen reader:
+
+| Setting | What it says |
+|---|---|
+| Speak errors and warnings | When something goes wrong, interrupting whatever is being read. The one worth turning on first |
+| Speak when a run finishes | "12 episodes finished" at the end, so you can be elsewhere |
+| Speak progress as a run goes along | Names each episode as it finishes, and how many are done. Useful on a long run, chatty on a short one |
+| Send the same to a braille display | Alongside speech, never instead of it. Harmless with no display connected |
+
+All four are off by default — an app that talks over you is a worse companion
+than one that stays quiet. The installed app already carries the component that
+does the talking, so these are ready to switch on rather than ready to install.
+
+This does not fix the underlying limitation: the activity log still cannot
+announce itself, and this speaks around it.
+
+## Choosing a model
+
+**Set up models** beside the model picker lists every model podHarvest knows,
+with a plain word on each: Ready, Not downloaded, Needs an API key, or Will not
+fit. Nothing is hidden — a model too large for your machine is listed with the
+numbers ("needs about 6 GB; this machine can give about 4.5") rather than
+silently missing, and cloud providers you have not configured are listed too, so
+you can find out they exist.
+
+The main window itself only offers models that can run right now, so a picker
+never hands you something that then refuses. Downloading happens in its own
+window that names both of its steps, because setting up the engine's Python
+packages takes minutes and reports no percentage — it used to look exactly like
+a dead button.
+
+## Where the big files go
+
+Models, downloaded engines and caches can run to several gigabytes, and the
+drive your user profile is on is often the one with least room. **Settings ▸
+Where models and downloads are kept** shows what each folder costs, the total,
+and how much is free — then lets you point them at another drive and move what
+is already there.
+
+Your settings and logs never move. A settings file you can lose is worse than a
+full drive, and the log needs to be readable when the thing you are reporting is
+that the other folder broke.
+
+Moving copies everything and checks it arrived before deleting anything, so an
+interruption leaves your existing copy working. Restart podHarvest afterwards to
+start using the new folder.
+
 ## When something goes wrong
 
 **It says it cannot set up an engine.** Run `podharvest doctor`. It will say

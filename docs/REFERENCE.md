@@ -887,6 +887,12 @@ importable".
 | `preview_volume`, `preview_muted` | Player volume, remembered across sessions and shared with the editor |
 | `skip_back_ms`, `skip_forward_ms` | How far Rewind and Forward jump, separately |
 | `remember_playback_position` | Pick an episode up where you left it |
+| `follow_along` | Move the transcript caret to keep pace with playback. **Off by default and deliberately so:** a caret that moves on its own takes the text out from under somebody reading at their own pace |
+| `announce_errors`, `announce_completions`, `announce_progress` | Speak each kind of message through the running screen reader. All off by default; see [Announcements](#announcements) |
+| `announce_braille` | Send the same messages to a braille display as well. Off by default, and only ever alongside speech |
+| `ask_to_check_favourites` | Offer once at launch, and only after a week, to check favourites for new episodes. A question, never a schedule |
+| `favourites_checked_at` | When that check last ran, ISO 8601. Written by podHarvest; there is no reason to set it by hand |
+| `data_dir` | Where models, on-demand engines and caches are kept. Empty means podHarvest's own folder. Settings and logs never move; see [Where the large files live](#where-the-large-files-live) |
 | `reuse_transcripts`, `use_feed_transcripts`, `reuse_chapters` | Whether existing work is kept rather than redone |
 
 Change any of them with `podharvest settings --set key=value` (repeatable). The GUI exposes the most commonly changed subset and writes to the same file; settings it does not show (download filters, concurrency, enrichment, output formats) are CLI-only for now.
@@ -905,7 +911,28 @@ Logs              : ...\logs
 Default output    : ...\feeds
 ```
 
+Models, packages, cache and tmp can be moved to another drive — see [Where the large files live](#where-the-large-files-live). Config and logs always stay in the app root.
+
 Resolution order: `--app-dir` flag → `PODHARVEST_HOME` env var → a `.podharvest-home` folder next to the app (portable/USB mode, used automatically by the PyInstaller build) → `~/.podharvest`.
+
+### Where the large files live
+
+The app space has two halves, and only one of them can be moved.
+
+**`root` never moves.** It holds `config/settings.json` and `logs/`. A settings file that moves is a settings file you can lose, and the log has to stay readable when the thing you are reporting is that the other folder broke.
+
+**`data_root` is the movable half.** It holds `models/`, `pydeps/`, `cache/` and `tmp/` — the four folders in `AppSpace.DATA_FOLDERS`, and the only ones that grow without bound. Models alone run to gigabytes, and the drive a user profile sits on is often the one with least room. It defaults to `root`, so a podHarvest that has never been told otherwise is unchanged.
+
+Set it in **Settings ▸ Where models and downloads are kept**, or with `podharvest settings --set data_dir=D:\podharvest-data`. The panel shows each folder's size, the total, and free space on the drive, because the whole reason to move is disk pressure.
+
+Two implementation details worth knowing:
+
+- **`resolve()` reads `data_dir` straight out of the settings JSON**, not through `config`, because the app space has to exist before `config` can find its own file. It is deliberately forgiving — an unreadable file, a nonsense value or an unplugged external drive gives the default rather than a stack trace on start-up.
+- **`env_overrides()` follows the data root.** Without that, `HF_HOME` and `TORCH_HOME` would keep caching to the drive you had just moved off, and the disk would fill anyway.
+
+**Moving copies before it deletes.** `storage.move_data` copies every folder, checks it arrived, and only then removes the originals — so an interruption at any point leaves the old copy intact and podHarvest still running from it. Half a gigabyte of models is not worth risking to save a few seconds, and an interrupted cross-drive move can leave a partial file that looks complete. `storage.check_move` refuses a destination inside the current folder (the copy would be copied), a path that is a file, or a drive without room plus 15% headroom, and returns a sentence saying which — "why not?" is the immediate question when a button is refused.
+
+A move does not take effect in the running session: rebuilding the app space mid-session would leave every existing reference stale, so podHarvest says to restart instead.
 
 ## Accessibility
 

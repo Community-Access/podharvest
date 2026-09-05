@@ -76,6 +76,20 @@ written `[HH:MM:SS.mmm]` markers into transcripts, and reading those back is
 what makes a library harvested a year ago searchable to the second today; a
 new `.words.json` sidecar adds word-level precision for runs from now on.
 
+### Added (where the big files go)
+
+- **Models and downloads can live on another drive.** Settings shows what
+  each folder costs, the total, and how much is free, then moves what is
+  already there. Until now the only ways to move them were a CLI flag, an
+  environment variable or portable mode -- none discoverable, and all of
+  them moved the settings too.
+- **Settings and logs never move.** A settings file that moves is one you
+  can lose, and the log has to be readable when the thing you are
+  reporting is that the other folder broke.
+- **A move copies, checks, and only then deletes**, so an interruption
+  leaves the existing copy working. It refuses a folder inside the current
+  one, a path that is a file, or a drive without room, and says which.
+
 ### Changed (models)
 
 - **The main window offers only models that can actually run**, and says so
