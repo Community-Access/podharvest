@@ -82,6 +82,7 @@
   "gui.py::_build_directory_settings::wx.SpinCtrl": "helped",
   "gui.py::_build_feed_box::wx.TextCtrl": "helped",
   "gui.py::_build_find_box::wx.Button": "helped",
+  "gui.py::_build_find_box::wx.Button#2": "helped",
   "gui.py::_build_find_box::wx.ListCtrl": "helped",
   "gui.py::_build_find_box::wx.TextCtrl": "helped",
   "gui.py::_build_hardware_box::wx.Button": "helped",

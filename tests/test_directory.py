@@ -403,8 +403,15 @@ class TestTheWindow:
         from podharvest import gui
 
         source = inspect.getsource(gui.MainFrame)
+        assert "&Find a podcast" in source, "the source, and the Ctrl+K entry"
+        # Searching is part of the window now: a box, a button and a results
+        # list, rather than a dialog opened over the top of everything.
+        assert "self.find_list" in source
+        assert "_on_find_search" in source
+        # The fuller search still exists for the options the inline box
+        # leaves out, and is still reachable.
         assert "SearchDialog" in source
-        assert "&Find a podcast..." in source
+        assert "&More options..." in source
 
     def test_favourites_are_reachable(self):
         pytest.importorskip("wx")

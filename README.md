@@ -33,16 +33,27 @@ podHarvest tomorrow, your library stays exactly where it is.
 
 ## Finding a podcast
 
-You do not need to know a show's feed address. Press **Ctrl+K**, type the name
-of the show, a presenter, or what it is about, and press Enter. Arrow the
-results, press Enter again, and the feed address is filled in for you.
+You do not need to know a show's feed address. The **Source** group at the top
+of the window offers four ways to say what to work on, and each has its own box
+below it:
+
+| Source | What it is for |
+|---|---|
+| **Find a podcast** | You know the name but not the address. Type it, press Enter, arrow the results. |
+| **Podcast feed** | You already have a feed address. |
+| **Podcast list** | An OPML file or address — how podcast apps hand each other a list of shows. |
+| **Local files** | Audio already on this machine. |
+
+For the first three, the **Chosen podcast** line below says what the rest of the
+window is about, and everything that acts on a podcast — the episode filter,
+Show episodes, Add to favourites — stays greyed until one is chosen. **Ctrl+K**
+goes straight to the search box from anywhere.
 
 The search asks Apple's podcast directory — free, no account, the same one the
-podcast apps use. You can narrow what your words are matched against (the
-show's name, the presenter, keywords, the description) and choose which
-country's store to ask, since stores carry different shows: a local programme
-may only appear in its own. The default is the United States store, which is
-the largest; change it in **Settings ▸ Finding podcasts**.
+podcast apps use. Which country's store is asked, and how many results come
+back, are set in **Settings ▸ Finding podcasts**; stores carry different shows,
+so a local programme may only appear in its own. The default is the United
+States store, which is the largest.
 
 **Show episodes** (**Ctrl+Shift+E**) reads a feed and lists what is in it —
 titles, dates, lengths, and whether each episode has audio or a published
@@ -400,7 +411,7 @@ anywhere in the program. You do not have to remember the rest of this table — 
 | Ctrl+R | Start |
 | Escape | Stop the current run |
 | F6 | Go to the status bar (F6 or Escape comes back) |
-| Ctrl+K | Find a podcast |
+| Ctrl+K | Go to the search box |
 | Ctrl+Shift+K | Favourite podcasts |
 | Ctrl+Shift+N | Check favourites for new episodes |
 | Ctrl+Shift+I | Import a list of podcasts (OPML) |

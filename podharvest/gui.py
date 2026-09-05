@@ -1093,8 +1093,8 @@ class MainFrame(wx.Frame):
         # -- File: choosing what to work on, and starting -------------------
         file_menu = wx.Menu()
         self._menu_find = file_menu.Append(
-            wx.ID_ANY, "&Find a podcast...\tCtrl+K",
-            "Search Apple's podcast directory by name")
+            wx.ID_ANY, "&Find a podcast\tCtrl+K",
+            "Go to the search box and search Apple's directory by name")
         # Everything favourites-related lives in one submenu: five related
         # actions as one File-menu row keeps the menu a menu, not a list of
         # everything -- the shape the menu gate in tests/test_directory.py
@@ -1680,7 +1680,7 @@ class MainFrame(wx.Frame):
             "Keyboard shortcuts:\n"
             "  Ctrl+R        Start\n"
             "  Esc           Cancel\n"
-            "  Ctrl+K        Find a podcast\n"
+            "  Ctrl+K        Go to the search box\n"
             "  Ctrl+Shift+K  Favourite podcasts\n"
             "  Ctrl+Shift+I  Import a list of podcasts\n"
             "  Ctrl+Shift+E  Show the episodes in this feed\n"
@@ -2474,7 +2474,21 @@ class MainFrame(wx.Frame):
             "Asks Apple's directory for shows matching what you typed. Enter "
             "in the box beside it does the same.")
         self.find_btn.Bind(wx.EVT_BUTTON, lambda _e: self._on_find_search())
-        row.Add(self.find_btn, 0)
+        row.Add(self.find_btn, 0, wx.RIGHT, 6)
+
+        # The narrowing options -- match against a presenter rather than a
+        # title, leave out explicit shows -- are wanted rarely and would
+        # crowd out the two controls used every time. They keep their own
+        # window rather than being quietly dropped: taking a capability away
+        # without saying so is worse than a second button.
+        more_btn = wx.Button(holder, label="&More options...")
+        more_btn.SetToolTip(
+            "The fuller search: what your words are matched against, which "
+            "country's store to ask, how many results, and whether explicit "
+            "shows are included. Whatever you choose there arrives here."
+        )
+        more_btn.Bind(wx.EVT_BUTTON, self._on_search_options)
+        row.Add(more_btn, 0)
         box.Add(row, 0, wx.EXPAND | wx.ALL, 8)
 
         # Label before control, so a screen reader pairs the two.
@@ -2891,6 +2905,26 @@ class MainFrame(wx.Frame):
                  "Remember this show, without harvesting it",
                  self._on_add_favorite, bool(feed_url)),
             ))
+
+    def _on_search_options(self, _evt=None) -> None:
+        """The fuller search window, for the options the inline box omits."""
+        from podharvest.discover import SearchDialog
+
+        dlg = SearchDialog(self, self.app_space, self.settings)
+        try:
+            if dlg.ShowModal() != wx.ID_OK or dlg.chosen is None:
+                return
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        if self.source_mode() != "find":
+            self.mode_radio.SetSelection(_SOURCE_MODES.index("find"))
+            self._apply_source_mode()
+        self._choose_feed(
+            chosen.feed_url, chosen.title,
+            note=f"Chose '{chosen.display_name}'. Press Show episodes to see "
+                 "what it has, or Start to harvest it.")
+        self.browse_btn.SetFocus()
 
     def _on_find_podcast(self, _evt=None) -> None:
         """Ctrl+K: go to the search box, which is now part of the window.
