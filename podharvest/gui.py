@@ -321,6 +321,8 @@ class SettingsDialog(wx.Dialog):
         outer.Add(fin_box, 0, wx.EXPAND | wx.ALL, 10)
         outer.Add(self._build_announcement_settings(), 0,
                   wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        outer.Add(self._build_storage_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         buttons = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         self._content.SetSizer(outer)
@@ -432,6 +434,149 @@ class SettingsDialog(wx.Dialog):
         )
         box.Add(self.chk_local_recurse, 0, wx.ALL, 6)
         return box
+
+    def _build_storage_settings(self) -> wx.StaticBoxSizer:
+        """Where the gigabytes go.
+
+        Models, the engines installed on demand and the caches are the only
+        things here that grow without bound, and the drive a user profile
+        sits on is often the one with least room. Settings and logs are
+        deliberately not included: a settings file that moves is one you can
+        lose, and the log has to be readable when the thing being reported
+        is that this folder broke.
+        """
+        from podharvest import storage
+
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content,
+                                "Where models and downloads are kept")
+        holder = box.GetStaticBox()
+
+        # Read-only and multi-line so it is a real tab stop that can be read
+        # a line at a time. This is the answer to "where has my disk gone?".
+        self.storage_info = wx.TextCtrl(
+            holder, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        self.storage_info.SetToolTip(
+            "Where the large files are now, how much room they take, and how "
+            "much is free on that drive. Read-only."
+        )
+        set_accessible_name(self.storage_info, "Current storage")
+        size_for_text(self.storage_info, lines=7, chars=60)
+        box.Add(self.storage_info, 0, wx.EXPAND | wx.ALL, 6)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        # Label before control, so a screen reader pairs the two.
+        row.Add(wx.StaticText(holder, label="&Keep them in:"), 0,
+                wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.data_dir_ctrl = wx.TextCtrl(
+            holder, value=self.settings.data_dir, size=(300, -1))
+        self.data_dir_ctrl.SetToolTip(
+            "The folder for models, downloaded engines and caches. Leave it "
+            "empty to use podHarvest's own folder. Your settings and logs "
+            "stay where they are either way."
+        )
+        self.data_dir_ctrl.SetHint("podHarvest's own folder")
+        set_accessible_name(self.data_dir_ctrl, "Folder for models and downloads")
+        row.Add(self.data_dir_ctrl, 1, wx.RIGHT, 6)
+
+        browse = wx.Button(holder, label="Bro&wse...")
+        browse.SetToolTip("Picks the folder with the system folder chooser.")
+        browse.Bind(wx.EVT_BUTTON, self._on_browse_data_dir)
+        row.Add(browse, 0)
+        box.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.storage_status = wx.StaticText(holder, label="")
+        set_accessible_name(self.storage_status, "Storage status")
+        box.Add(self.storage_status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.move_btn = wx.Button(holder, label="&Move what is there now")
+        self.move_btn.SetToolTip(
+            "Copies the models, engines and caches to the folder above, then "
+            "removes the originals. Everything is copied and checked before "
+            "anything is deleted, so an interruption leaves the current copy "
+            "working. Without this, what is already downloaded stays where "
+            "it is and would be fetched again."
+        )
+        self.move_btn.Bind(wx.EVT_BUTTON, self._on_move_data)
+        box.Add(self.move_btn, 0, wx.ALL, 6)
+
+        self._describe_storage()
+        return box
+
+    def _describe_storage(self) -> None:
+        """Say where things are, what they cost, and whether a move can run."""
+        from podharvest import storage
+
+        app = self.app
+        lines = [f"Now in: {app.data}"]
+        if app.data_root is None:
+            lines.append("(podHarvest's own folder -- the default.)")
+        sizes = storage.measure(app)
+        total = sum(size.bytes for size in sizes)
+        for size in sizes:
+            if size.bytes:
+                lines.append("  " + size.spoken())
+        lines.append(f"Total: {storage.human_size(total)}")
+        lines.append(
+            f"Free on that drive: {storage.human_size(storage.free_bytes(app.data))}")
+        self.storage_info.SetValue("\n".join(lines))
+        self.storage_info.SetInsertionPoint(0)
+
+        typed = self.data_dir_ctrl.GetValue().strip()
+        if not typed:
+            self.storage_status.SetLabel(
+                "Empty means podHarvest's own folder. Nothing to move.")
+            self.move_btn.Enable(False)
+            return
+        ok, sentence = storage.check_move(app, Path(typed))
+        self.storage_status.SetLabel(sentence)
+        self.move_btn.Enable(ok)
+
+    def _on_browse_data_dir(self, _evt) -> None:
+        with wx.DirDialog(
+            self, "Choose a folder for models and downloads",
+            defaultPath=self.data_dir_ctrl.GetValue().strip() or str(self.app.data),
+            style=wx.DD_DEFAULT_STYLE,
+        ) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return
+            self.data_dir_ctrl.SetValue(dlg.GetPath())
+        self._describe_storage()
+
+    def _on_move_data(self, _evt) -> None:
+        """Move what is already downloaded, saying so as it goes."""
+        from podharvest import storage
+
+        destination = Path(self.data_dir_ctrl.GetValue().strip())
+        ok, sentence = storage.check_move(self.app, destination)
+        if not ok:
+            self.storage_status.SetLabel(sentence)
+            return
+        answer = wx.MessageBox(
+            f"{sentence}\n\nMove them now?", "Move models and downloads",
+            wx.YES_NO | wx.ICON_QUESTION, self)
+        if answer != wx.YES:
+            return
+        self.move_btn.Disable()
+        self.storage_status.SetLabel("Moving...")
+        wx.Yield()
+        try:
+            storage.move_data(
+                self.app, destination,
+                on_progress=lambda text: (self.storage_status.SetLabel(text),
+                                          wx.Yield()))
+        except OSError as exc:
+            self.storage_status.SetLabel(
+                f"That did not finish: {exc}. Nothing was deleted; podHarvest "
+                "is still using the folder it was.")
+            self.move_btn.Enable(True)
+            return
+        # The app space in this process still points at the old folder, and
+        # rebuilding one mid-session would leave every other reference stale.
+        # Saying so is honest and cheap; restarting is one action.
+        self.storage_status.SetLabel(
+            "Moved. Close and reopen podHarvest to start using the new "
+            "folder.")
+        self._describe_storage()
 
     def _build_announcement_settings(self) -> wx.StaticBoxSizer:
         """Speaking, because the activity log cannot announce itself.
@@ -1052,6 +1197,7 @@ class SettingsDialog(wx.Dialog):
         settings.announce_progress = self.chk_ann_progress.GetValue()
         settings.announce_braille = self.chk_ann_braille.GetValue()
         settings.ask_to_check_favourites = self.chk_ask_favourites.GetValue()
+        settings.data_dir = self.data_dir_ctrl.GetValue().strip()
         settings.playback_rates = config_mod.clean_rates(
             _parse_rates(self.rates_ctrl.GetValue()))
         settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()

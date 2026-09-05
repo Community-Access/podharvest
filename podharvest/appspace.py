@@ -28,11 +28,31 @@ def _install_dir() -> Path:
 
 @dataclass(frozen=True)
 class AppSpace:
+    """Where podHarvest keeps everything, in two halves.
+
+    `root` holds what must always be findable: the settings file and the
+    logs. Those stay put. A settings file that moves is a settings file you
+    can lose, and the log has to be readable when the thing you are
+    reporting is that the other folder is broken.
+
+    `data_root` holds what grows without bound -- models, the engines
+    installed on demand, and the caches. That is the part worth moving:
+    models alone run to gigabytes, and the drive the profile lives on is
+    often the one with least room. It defaults to `root`, so a podHarvest
+    that has never been told otherwise behaves exactly as it always did.
+    """
+
     root: Path
+    data_root: Path | None = None
+
+    @property
+    def data(self) -> Path:
+        """Where the large, replaceable things live."""
+        return self.data_root or self.root
 
     @property
     def models_dir(self) -> Path:
-        return self.root / "models"
+        return self.data / "models"
 
     @property
     def whisper_models_dir(self) -> Path:
@@ -49,11 +69,11 @@ class AppSpace:
     @property
     def python_packages_dir(self) -> Path:
         """Isolated site-packages for optional heavy deps (torch, nemo, etc.)."""
-        return self.root / "pydeps"
+        return self.data / "pydeps"
 
     @property
     def http_cache_dir(self) -> Path:
-        return self.root / "cache" / "http"
+        return self.data / "cache" / "http"
 
     @property
     def config_dir(self) -> Path:
@@ -65,7 +85,14 @@ class AppSpace:
 
     @property
     def temp_dir(self) -> Path:
-        return self.root / "tmp"
+        # With the data half: a transcode of an hour of audio is large, and
+        # it belongs on whichever drive was chosen for large things.
+        return self.data / "tmp"
+
+    #: The folders that move when the data location changes. Named once so
+    #: the mover, the size readout and `ensure` cannot disagree about what
+    #: "the data" is.
+    DATA_FOLDERS = ("models", "pydeps", "cache", "tmp")
 
     @property
     def default_output_dir(self) -> Path:
@@ -113,17 +140,48 @@ class AppSpace:
             sys.path.insert(0, pkgs)
 
 
+def _configured_data_root(root: Path) -> Path | None:
+    """Where the settings file says the large things should go, if anywhere.
+
+    Read straight out of the JSON rather than through `config`, because
+    `config` needs an AppSpace to find its own file and this runs while one
+    is being built. Deliberately forgiving: an unreadable or nonsensical
+    value means the default, never a crash on start-up. Somebody whose
+    external drive is unplugged should get podHarvest back, not a stack
+    trace.
+    """
+    import json
+
+    try:
+        raw = json.loads((root / "config" / "settings.json")
+                         .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = raw.get("data_dir") if isinstance(raw, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        chosen = Path(value).expanduser().resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    return chosen if chosen != root.resolve() else None
+
+
+def _spaced(root: Path) -> AppSpace:
+    return AppSpace(root, data_root=_configured_data_root(root)).ensure()
+
+
 def resolve(app_dir: str | None = None) -> AppSpace:
     if app_dir:
-        return AppSpace(Path(app_dir).expanduser().resolve()).ensure()
+        return _spaced(Path(app_dir).expanduser().resolve())
     if env_home := os.environ.get("PODHARVEST_HOME"):
-        return AppSpace(Path(env_home).expanduser().resolve()).ensure()
+        return _spaced(Path(env_home).expanduser().resolve())
 
     install_marker = _install_dir() / ".podharvest-home"
     if install_marker.exists() or _is_portable_layout():
-        return AppSpace(install_marker).ensure()
+        return _spaced(install_marker)
 
-    return AppSpace(Path.home() / ".podharvest").ensure()
+    return _spaced(Path.home() / ".podharvest")
 
 
 def _is_portable_layout() -> bool:

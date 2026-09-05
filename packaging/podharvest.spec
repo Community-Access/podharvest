@@ -244,6 +244,7 @@ a = Analysis(
         "podharvest.timing_core",
         "podharvest.clips",
         "podharvest.announce",
+        "podharvest.storage",
         "podharvest.model_download",
         "podharvest.model_manager",
         "podharvest.tags",

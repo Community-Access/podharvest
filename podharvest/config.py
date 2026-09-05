@@ -145,6 +145,13 @@ class Settings:
     #: When the favourites were last checked, ISO 8601, so the question can
     #: stay quiet rather than being asked at every single launch.
     favourites_checked_at: str = ""
+    #: Where models, on-demand engines and caches are kept. Empty means
+    #: podHarvest's own folder. Settings and logs never move -- a settings
+    #: file you can lose is worse than a full drive, and the log has to be
+    #: readable when the thing you are reporting is that this folder broke.
+    #: Read by `appspace.resolve` straight out of the JSON, because the app
+    #: space has to exist before `config` can find its own file.
+    data_dir: str = ""
     # The speeds the player offers. Yours to change: people who listen at 3x
     # are not an edge case, and people who need 0.5x to follow a fast speaker
     # are the reason this is a list rather than a pair of buttons. 1.0 is
