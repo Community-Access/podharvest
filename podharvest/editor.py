@@ -49,6 +49,22 @@ BOUNDARY_TAIL_MS = 2_000
 THUMBNAIL_PX = 160
 
 
+def _transcript_beside(audio: Path) -> Path | None:
+    """The transcript for an audio file, when one sits next to it.
+
+    podHarvest writes `<slug>.md` beside `<slug>.mp3` for a local file, and
+    into the show's transcripts folder for a harvested episode. Only the
+    first is findable from the audio path alone, which is enough: the
+    phrase search says plainly when there is no transcript, and that is a
+    better answer than opening a file dialog nobody asked for.
+    """
+    for suffix in (".md", ".txt"):
+        candidate = audio.with_suffix(suffix)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _plain(label: str) -> str:
     """A label as a screen reader should hear it: no ampersand, no colon."""
     return label.replace("&", "").rstrip(": ").strip()
@@ -407,6 +423,7 @@ class ChapterPage(wx.Panel):
         total_ms: int,
         *,
         audio_path: Path | None = None,
+        transcript_path: Path | None = None,
         announce: Callable[[str], None] | None = None,
         volume: int = 70,
         muted: bool = False,
@@ -417,6 +434,10 @@ class ChapterPage(wx.Panel):
         self.chapters = list(chapters)
         self.total_ms = total_ms
         self._announce_fn = announce
+        # Read lazily, the first time a phrase is looked for: most sessions
+        # here are nudging by ear and never ask for it.
+        self._transcript_path = transcript_path
+        self._timeline = None
         self._stop_at_ms: int | None = None
         self._wall_announced = False
         self._settle_timer = None
@@ -478,6 +499,36 @@ class ChapterPage(wx.Panel):
             btn.Bind(wx.EVT_BUTTON, lambda _e, h=handler: h())
             edit_row.Add(btn, 0, wx.RIGHT, 6)
         root.Add(edit_row, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        # Finding the place by what was said, rather than by ear. Nudging
+        # stays for the fine work -- this is the coarse move that precedes
+        # it, and gets you within a sentence in one action instead of
+        # scrubbing for a minute.
+        phrase_row = wx.BoxSizer(wx.HORIZONTAL)
+        # Label before control, so a screen reader pairs the two.
+        # Alt+I, not Alt+P: the transport's Play owns P, and the page and
+        # the player share one key namespace because the player sits inside
+        # the page. A test holds that.
+        phrase_row.Add(wx.StaticText(self, label="F&ind a phrase:"), 0,
+                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        self.phrase_ctrl = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
+        self.phrase_ctrl.SetToolTip(
+            "Type words from the transcript and press Enter to move the "
+            "playhead to where they were said. Add chapter then puts a "
+            "marker there. Needs a transcript with timings, which is what "
+            "podHarvest writes unless timestamps were switched off."
+        )
+        self.phrase_ctrl.SetHint("words from the transcript")
+        set_accessible_name(self.phrase_ctrl, "Find a phrase")
+        self.phrase_ctrl.Bind(wx.EVT_TEXT_ENTER, lambda _e: self.on_find_phrase())
+        phrase_row.Add(self.phrase_ctrl, 1, wx.RIGHT, 6)
+
+        goto_btn = wx.Button(self, label="&Go to it")
+        goto_btn.SetToolTip(
+            "Moves the playhead to where that phrase was said.")
+        goto_btn.Bind(wx.EVT_BUTTON, lambda _e: self.on_find_phrase())
+        phrase_row.Add(goto_btn, 0)
+        root.Add(phrase_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
 
         nudge_row = wx.BoxSizer(wx.HORIZONTAL)
         back_btn = wx.Button(self, label="N&udge back")
@@ -650,6 +701,41 @@ class ChapterPage(wx.Panel):
             f"{core.format_time_precise(updated[index].end_ms)}",
         )
 
+    def on_find_phrase(self) -> None:
+        """Move the playhead to where a phrase was said.
+
+        Says where it went, in words: moving a playhead is invisible, and a
+        silent jump is indistinguishable from a control that did nothing.
+        """
+        from podharvest import timing_core
+
+        needle = self.phrase_ctrl.GetValue().strip().lower()
+        if not needle:
+            return
+        if self._timeline is None:
+            self._timeline = (
+                timing_core.load_timeline(self._transcript_path)
+                if self._transcript_path is not None
+                else timing_core.Timeline(segments=(), source="none"))
+        if self._timeline.is_empty():
+            self._error(
+                "This episode has no transcript timings, so a phrase cannot "
+                "be found in it. Transcribe it with timestamps switched on "
+                "and this will work.")
+            return
+        position = self._timeline.text().lower().find(needle)
+        if position < 0:
+            self._error(f"'{needle}' is not in this transcript.")
+            return
+        when = self._timeline.time_at_char(position)
+        if when is None:
+            self._error("There is no timing for that phrase.")
+            return
+        self.player.seek_to(when)
+        self._announce(
+            f"Moved to {core.format_time_precise(when)}. "
+            "Add chapter puts a marker here.")
+
     def on_preview(self) -> None:
         index = self._selected()
         if index < 0:
@@ -793,6 +879,7 @@ class EditorDialog(wx.Dialog):
             chapters,
             total_ms,
             audio_path=self.path,
+            transcript_path=_transcript_beside(self.path),
             announce=announce,
             volume=volume,
             muted=muted,

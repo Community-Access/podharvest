@@ -149,6 +149,79 @@ class TestItIsNotASubscription:
             assert forbidden not in body, f"freshness must not {forbidden}"
 
 
+class TestTheLaunchPrompt:
+    """One refusable question, and nothing that runs on its own."""
+
+    def test_asking_is_on_by_default_but_checking_is_not_automatic(self):
+        from podharvest.config import Settings
+
+        assert Settings().ask_to_check_favourites is True
+
+    def test_stop_asking_is_remembered(self):
+        from podharvest.config import Settings
+
+        settings = Settings()
+        settings.ask_to_check_favourites = False
+        restored = Settings.from_dict(settings.to_dict())
+        assert restored.ask_to_check_favourites is False
+
+    def test_nothing_schedules_or_downloads(self):
+        """The promise the docs make, held by a test.
+
+        Checked against the calls the function makes rather than the words
+        it contains: the message itself says "nothing is downloaded", and a
+        test that greps for "download" fails on the reassurance.
+        """
+        pytest.importorskip("wx")
+        import ast
+        import inspect
+        import textwrap
+
+        from podharvest import gui
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(
+            gui.MainFrame._maybe_offer_favourites_check)))
+        called = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                called.add(func.attr if isinstance(func, ast.Attribute)
+                           else getattr(func, "id", ""))
+        for forbidden in ("Timer", "Thread", "start", "download_all",
+                          "_start_harvest", "_on_start"):
+            assert forbidden not in called, (
+                f"the launch prompt must not call {forbidden}")
+
+    def test_it_stays_quiet_when_there_are_no_favourites(self):
+        pytest.importorskip("wx")
+        import inspect
+
+        from podharvest import gui
+
+        source = inspect.getsource(gui.MainFrame._maybe_offer_favourites_check)
+        assert "if not favourites" in source
+
+    def test_it_stays_quiet_when_the_check_was_recent(self):
+        pytest.importorskip("wx")
+        import inspect
+
+        from podharvest import gui
+
+        source = inspect.getsource(gui.MainFrame._maybe_offer_favourites_check)
+        assert "FAVOURITES_STALE_DAYS" in source
+
+    def test_stop_asking_is_one_of_the_three_answers(self):
+        """Refusing once and refusing for good are different wishes."""
+        pytest.importorskip("wx")
+        import inspect
+
+        from podharvest import gui
+
+        source = inspect.getsource(gui.MainFrame._maybe_offer_favourites_check)
+        assert "Stop asking" in source
+        assert "ask_to_check_favourites = False" in source
+
+
 class TestTheWindow:
     def test_it_is_reachable_from_the_menu(self):
         pytest.importorskip("wx")

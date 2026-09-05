@@ -130,6 +130,21 @@ class Settings:
     #: reader user that is not a nicety but a loss of control. Only ever
     #: turned on from Settings.
     follow_along: bool = False
+    #: Spoken announcements, per kind of message, all off until asked for.
+    #: An app that talks over you is a worse companion than a quiet one, so
+    #: nothing here is on by default and each is chosen separately.
+    announce_completions: bool = False
+    announce_progress: bool = False
+    announce_errors: bool = False
+    #: Send the same messages to a braille display as well as speaking them.
+    announce_braille: bool = False
+    #: Offer, once per launch, to check favourites for new episodes. This is
+    #: a question, not a schedule: nothing runs while podHarvest is closed,
+    #: and nothing is downloaded by answering yes.
+    ask_to_check_favourites: bool = True
+    #: When the favourites were last checked, ISO 8601, so the question can
+    #: stay quiet rather than being asked at every single launch.
+    favourites_checked_at: str = ""
     # The speeds the player offers. Yours to change: people who listen at 3x
     # are not an edge case, and people who need 0.5x to follow a fast speaker
     # are the reason this is a list rather than a pair of buttons. 1.0 is

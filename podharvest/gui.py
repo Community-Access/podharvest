@@ -306,7 +306,21 @@ class SettingsDialog(wx.Dialog):
         )
         self.chk_finished_dialog.SetValue(settings.show_finished_dialog)
         fin_box.Add(self.chk_finished_dialog, 0, wx.ALL, 6)
+
+        self.chk_ask_favourites = wx.CheckBox(
+            fholder,
+            label="&Offer to check favourites when podHarvest opens")
+        self.chk_ask_favourites.SetValue(settings.ask_to_check_favourites)
+        self.chk_ask_favourites.SetToolTip(
+            "Asks once, when the window opens, whether to look for new "
+            "episodes of your favourite shows -- and only when it has been "
+            "a week or more. It is only ever a question: nothing runs while "
+            "podHarvest is closed and nothing is downloaded by saying yes."
+        )
+        fin_box.Add(self.chk_ask_favourites, 0, wx.ALL, 6)
         outer.Add(fin_box, 0, wx.EXPAND | wx.ALL, 10)
+        outer.Add(self._build_announcement_settings(), 0,
+                  wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         buttons = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         self._content.SetSizer(outer)
@@ -326,6 +340,7 @@ class SettingsDialog(wx.Dialog):
         self._content.FitInside()
         self._on_toggle_log(None)
         self._on_toggle_summaries(None)
+        self._sync_announcement_status()
         # Focus opens on the first setting, not the default OK button: a
         # dialog that opens on OK reads as "Settings dialog, OK button" and
         # says nothing about what can be changed. Enter still accepts from
@@ -417,6 +432,98 @@ class SettingsDialog(wx.Dialog):
         )
         box.Add(self.chk_local_recurse, 0, wx.ALL, 6)
         return box
+
+    def _build_announcement_settings(self) -> wx.StaticBoxSizer:
+        """Speaking, because the activity log cannot announce itself.
+
+        Everything here is off until it is asked for, and chosen per kind of
+        message: an app that talks over you is a worse companion than one
+        that stays quiet, and "tell me when it breaks" is a different wish
+        from "tell me every time an episode finishes".
+        """
+        from podharvest.announce import APPROXIMATE_MB
+
+        box = wx.StaticBoxSizer(wx.VERTICAL, self._content, "Announcements")
+        holder = box.GetStaticBox()
+        box.Add(wx.StaticText(
+            holder,
+            label="podHarvest cannot make the activity log announce itself --\n"
+                  "wxWidgets has no way to do that. These speak instead."),
+            0, wx.ALL, 6)
+
+        self.chk_ann_errors = wx.CheckBox(
+            holder, label="Speak &errors and warnings")
+        self.chk_ann_errors.SetValue(self.settings.announce_errors)
+        self.chk_ann_errors.SetToolTip(
+            "Says so when something goes wrong, interrupting whatever is "
+            "being read. The one worth turning on first. Off by default.")
+        box.Add(self.chk_ann_errors, 0, wx.ALL, 6)
+
+        self.chk_ann_completions = wx.CheckBox(
+            holder, label="Speak when a &run finishes")
+        self.chk_ann_completions.SetValue(self.settings.announce_completions)
+        self.chk_ann_completions.SetToolTip(
+            "Says so out loud when a run ends, so you do not have to watch "
+            "for it. Off by default.")
+        box.Add(self.chk_ann_completions, 0, wx.ALL, 6)
+
+        self.chk_ann_progress = wx.CheckBox(
+            holder, label="Speak &progress as a run goes along")
+        self.chk_ann_progress.SetValue(self.settings.announce_progress)
+        self.chk_ann_progress.SetToolTip(
+            "Names each episode as it finishes, and how many are done. "
+            "Useful on a long run, chatty on a short one. Off by default.")
+        box.Add(self.chk_ann_progress, 0, wx.ALL, 6)
+
+        self.chk_ann_braille = wx.CheckBox(
+            holder, label="Send the same to a &braille display")
+        self.chk_ann_braille.SetValue(self.settings.announce_braille)
+        self.chk_ann_braille.SetToolTip(
+            "Also sends each announcement to a braille display, through "
+            "whichever screen reader is running. Harmless with no display "
+            "connected. Off by default.")
+        box.Add(self.chk_ann_braille, 0, wx.ALL, 6)
+
+        self.ann_status = wx.StaticText(holder, label="")
+        set_accessible_name(self.ann_status, "Announcement component status")
+        box.Add(self.ann_status, 0, wx.ALL, 6)
+
+        self.ann_install_btn = wx.Button(holder, label="&Set up announcements")
+        self.ann_install_btn.SetToolTip(
+            f"Downloads the small component (about {APPROXIMATE_MB} MB) that "
+            "lets podHarvest speak, into podHarvest's own folder. Nothing is "
+            "installed into your system Python, and nothing is downloaded "
+            "until you press this."
+        )
+        self.ann_install_btn.Bind(wx.EVT_BUTTON, self._on_install_announcer)
+        box.Add(self.ann_install_btn, 0, wx.ALL, 6)
+        return box
+
+    def _sync_announcement_status(self) -> None:
+        """Say whether announcements can work, before anything is ticked."""
+        from podharvest import announce
+
+        ready = announce.is_available()
+        self.ann_status.SetLabel(
+            "Ready: announcements will be spoken." if ready else
+            "Not set up yet. The boxes above do nothing until you press Set "
+            "up announcements.")
+        self.ann_install_btn.Enable(not ready)
+
+    def _on_install_announcer(self, _evt) -> None:
+        """Fetch the speech component, and say whether it worked."""
+        from podharvest import announce
+
+        self.ann_install_btn.Disable()
+        self.ann_status.SetLabel("Setting up. This is a one-time download...")
+        wx.Yield()
+        ready = announce.ensure_installed(self.app)
+        self.ann_status.SetLabel(
+            "Ready: announcements will be spoken." if ready else
+            "That could not be set up. The activity log says why.")
+        self.ann_install_btn.Enable(not ready)
+        if ready:
+            announce.speak("Announcements are ready.")
 
     def _build_playback_settings(self) -> wx.StaticBoxSizer:
         """How the transport behaves: skip amounts, and whether to resume."""
@@ -933,6 +1040,11 @@ class SettingsDialog(wx.Dialog):
         settings.skip_forward_ms = self.skip_forward_ctrl.GetValue() * 1000
         settings.remember_playback_position = self.chk_remember_position.GetValue()
         settings.follow_along = self.chk_follow_along.GetValue()
+        settings.announce_errors = self.chk_ann_errors.GetValue()
+        settings.announce_completions = self.chk_ann_completions.GetValue()
+        settings.announce_progress = self.chk_ann_progress.GetValue()
+        settings.announce_braille = self.chk_ann_braille.GetValue()
+        settings.ask_to_check_favourites = self.chk_ask_favourites.GetValue()
         settings.playback_rates = config_mod.clean_rates(
             _parse_rates(self.rates_ctrl.GetValue()))
         settings.local_transcripts_beside_file = self.chk_local_beside.GetValue()
@@ -1071,6 +1183,11 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_TIMER, lambda _e: self._refresh_status_bar(),
                   self._status_timer)
         self._status_timer.Start(1000)
+        # After the window exists and has focus, not during: a dialog that
+        # appears while the main window is still being built arrives before
+        # the thing it is asking about, and a screen reader announces the
+        # two in the wrong order.
+        wx.CallAfter(self._maybe_offer_favourites_check)
 
     # -- thread-safe UI updates -------------------------------------------
 
@@ -3082,6 +3199,63 @@ class MainFrame(wx.Frame):
                           note=f"Chose '{chosen.title}' from the imported list.")
         self.browse_btn.SetFocus()
 
+    #: How long since the last check before the question is worth asking.
+    FAVOURITES_STALE_DAYS = 7
+
+    def _maybe_offer_favourites_check(self) -> None:
+        """Offer once, on the way in, to see what is new. Never acts alone.
+
+        Deliberately a question and not a schedule. podHarvest is not a
+        subscription: nothing runs while it is closed, nothing is fetched
+        without an answer, and answering yes downloads nothing -- the check
+        reads feeds and reports, and Start is still a separate press.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from podharvest import favorites as favorites_mod
+
+        if not self.settings.ask_to_check_favourites:
+            return
+        favourites = favorites_mod.load(self.app_space)
+        if not favourites:
+            return
+        last = self.settings.favourites_checked_at
+        if last:
+            try:
+                when = datetime.fromisoformat(last)
+                if datetime.now(timezone.utc) - when < timedelta(
+                        days=self.FAVOURITES_STALE_DAYS):
+                    return
+            except ValueError:
+                pass      # an unreadable date is a reason to ask, not to crash
+        count = len(favourites)
+        message = (
+            f"{count} favourite{'s' if count != 1 else ''} "
+            f"{'have' if count != 1 else 'has'} not been checked for new "
+            f"episodes in over {self.FAVOURITES_STALE_DAYS} days.\n\n"
+            "Check now? This reads each feed and says what is new. Nothing "
+            "is downloaded, and nothing runs while podHarvest is closed."
+        )
+        dlg = wx.MessageDialog(self, message, "Check your favourites?",
+                               wx.YES_NO | wx.CANCEL | wx.ICON_QUESTION)
+        dlg.SetYesNoCancelLabels("&Check now", "&Not now", "&Stop asking")
+        try:
+            answer = dlg.ShowModal()
+        finally:
+            dlg.Destroy()
+        if answer == wx.ID_CANCEL:
+            self.settings.ask_to_check_favourites = False
+            config_mod.save(self.app_space, self.settings)
+            LOG.info("podHarvest will not offer to check your favourites "
+                     "again. Settings can turn it back on.")
+            return
+        if answer != wx.ID_YES:
+            return
+        self.settings.favourites_checked_at = (
+            datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        config_mod.save(self.app_space, self.settings)
+        self._on_check_favorites()
+
     def _on_check_favorites(self, _evt=None) -> None:
         """Ask each favourite's feed what is new, because the user just asked.
 
@@ -4013,6 +4187,16 @@ class MainFrame(wx.Frame):
                 f"{overall}% of everything. "
                 f"Last: '{prog.title}' - {prog.state_label.lower()} in "
                 f"{spoken_duration(prog.elapsed)}.")
+            from podharvest import announce
+
+            # The title, not just the count: on a long run the useful fact
+            # is which episode just finished, and a bare number leaves you
+            # counting.
+            announce.say(
+                f"{finished} of {prog.total} finished. {prog.title}, "
+                f"{prog.state_label.lower()}.",
+                category=("errors" if prog.state == "failed" else "progress"),
+                settings=self.settings)
         elif prog.state in {"transcribing", "summarising"}:
             doing = ("transcribing" if prog.state == "transcribing"
                      else "writing the summary for")
@@ -4324,6 +4508,15 @@ class MainFrame(wx.Frame):
         self._set_progress_text(f"{headline} {body.splitlines()[0]}")
         self.SetTitle(f"{DISPLAY_NAME} {__version__}")
         LOG.info("%s %s", headline, body.replace("\n\n", " ").replace("\n", " "))
+
+        # Said out loud when asked to be. The log cannot announce itself --
+        # wxWidgets has no way to make it -- so this is how a run that
+        # finished while you were doing something else says so.
+        from podharvest import announce
+
+        announce.say(f"{headline} {body.splitlines()[0]}",
+                     category=("errors" if self._run_failed else "completions"),
+                     settings=self.settings)
 
         # The button that stopped the run becomes the way into the results, so
         # the same place in the tab order stays useful instead of going dead.
