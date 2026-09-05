@@ -505,10 +505,17 @@ class SettingsDialog(wx.Dialog):
 
         ready = announce.is_available()
         self.ann_status.SetLabel(
-            "Ready: announcements will be spoken." if ready else
+            "Ready: announcements will be spoken through whichever screen "
+            "reader is running." if ready else
             "Not set up yet. The boxes above do nothing until you press Set "
             "up announcements.")
+        # Hidden rather than greyed when there is nothing to install: the
+        # installed app ships the component, so for most people this button
+        # is an offer to do something already done, and a disabled control
+        # still costs a Tab stop and a moment working out what it was for.
+        self.ann_install_btn.Show(not ready)
         self.ann_install_btn.Enable(not ready)
+        self._content.Layout()
 
     def _on_install_announcer(self, _evt) -> None:
         """Fetch the speech component, and say whether it worked."""

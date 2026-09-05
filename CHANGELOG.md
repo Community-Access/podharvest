@@ -61,7 +61,12 @@ First public release.
 - **Announcements.** Errors, run completions and per-episode progress can
   each be spoken, and sent to a braille display, working around the
   activity log's long-standing inability to announce itself. All four are
-  off by default and the component is downloaded only when asked for.
+  off by default, but the shipped app carries the component that does the
+  talking, so they are ready to switch on rather than ready to install --
+  this app's audience is screen reader users, and hunting for a setup
+  button before the app can say "the run finished" is not a reasonable
+  first experience. `pip install podharvest` still declares no
+  dependencies and fetches it on first use instead.
 - **Offer to check favourites at launch** -- once, after a week, with Stop
   asking as one of the three answers. Still not a subscription: nothing
   runs while podHarvest is closed and saying yes downloads nothing.

@@ -18,9 +18,14 @@ Three rules hold this together:
 its own failures. An app that dies because a screen reader was restarted
 mid-run is worse than one that goes quiet.
 
-**Nothing is installed without being asked.** The component arrives through
-`acquire`, into the app space, on first use, with consent. Without it every
-function returns False and Settings says why.
+**The shipped app carries the component; a pip install fetches it.** The
+Windows build bundles `accessible_output2` and the screen reader client
+libraries it talks through, because this app's audience is screen reader
+users and "the run finished" going unspoken until you find a setup button
+is not a reasonable first experience. Installed as a library instead,
+`pyproject.toml` still declares no dependencies and `ensure_installed`
+fetches it through `acquire` on first use, with consent. Either way, every
+function here returns False rather than raising when it is absent.
 
 **Nothing speaks unless it was turned on.** Announcements are off by default
 and chosen per category, because an app that talks over you is a worse

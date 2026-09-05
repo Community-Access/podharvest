@@ -394,7 +394,17 @@ Downloading happens in [`podharvest/model_download.py`](../podharvest/model_down
 
 The activity log cannot announce itself. wxWidgets exposes MSAA only: no live-region API on any platform, no UI Automation provider, no way to raise a UIA notification. Appending to a read-only text control fires a value-change event that NVDA, JAWS and Narrator all deliberately ignore for a control without focus.
 
-[`podharvest/announce.py`](../podharvest/announce.py) speaks to the screen reader directly instead, through `accessible_output2`, and reaches a braille display the same way. **Settings ▸ Announcements** offers errors, run completions and per-episode progress, each chosen separately, plus braille. All four are off by default. The component is installed on demand into the app space when **Set up announcements** is pressed — nothing is downloaded until then, and every function returns False rather than raising when it is absent.
+[`podharvest/announce.py`](../podharvest/announce.py) speaks to the screen reader directly instead, through `accessible_output2`, and reaches a braille display the same way. **Settings ▸ Announcements** offers errors, run completions and per-episode progress, each chosen separately, plus braille. All four are off by default.
+
+**The shipped Windows app carries the component.** This app's audience is screen reader users, and "the run finished" going unspoken until you find and press a setup button is not a reasonable first experience — so the frozen build bundles `accessible_output2`, and Settings shows announcements ready to switch on rather than ready to install. Installed as a library instead, `pyproject.toml` still declares no dependencies and the component is fetched on demand through `acquire` when **Set up announcements** is pressed. Either way every function returns False rather than raising when it is absent.
+
+Bundling it takes more than an import line, and getting it wrong fails quietly — the package imports perfectly and then says nothing. `packaging/podharvest.spec`'s `_announce_bundle()` handles three things, with `tests/test_announce_packaging.py` holding each:
+
+- The screen reader client DLLs are collected as **datas**, not binaries, because frozen `accessible_output2.load_library` looks in `platform_utils.paths.embedded_data_path()/accessible_output2/lib/` — the folder beside the exe on a onedir build — and nowhere else.
+- The output backends (`nvda`, `jaws`, `sapi5`, and the rest) are named explicitly, because they are discovered at import time by walking a module dict and static analysis never sees them.
+- `platform_utils` and `libloader` come too: the first resolves the frozen path above, the second does the loading.
+
+A build environment without the package still succeeds, and simply falls back to the on-demand path.
 
 ### The library
 

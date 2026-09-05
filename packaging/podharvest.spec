@@ -49,6 +49,50 @@ pip_binaries = []
 pip_hiddenimports = []
 
 
+def _announce_bundle():
+    """accessible_output2 and the screen reader DLLs it talks through.
+
+    Three things have to be true or spoken announcements import cleanly and
+    then say nothing at all, which is the worst of both outcomes:
+
+    1. **The DLLs must be data, at `accessible_output2/lib/`.** Frozen,
+       `accessible_output2.load_library` looks in
+       `platform_utils.paths.embedded_data_path()/accessible_output2/lib/`,
+       and on a onedir Windows build that is the folder next to the exe.
+       Collected as *datas* rather than binaries so they land at exactly
+       that path rather than wherever PyInstaller prefers to put a DLL.
+    2. **The output backends must be named.** They are discovered at import
+       time by walking `accessible_output2.outputs.__dict__`, so static
+       analysis never sees `nvda`, `jaws`, `sapi5` and the rest.
+    3. **Its own dependencies must come too** -- `platform_utils` does the
+       frozen-path resolution above, `libloader` does the loading.
+
+    Returns (datas, hiddenimports). Empty when the package is not in the
+    build environment, so a build without it still succeeds: announcements
+    then fall back to the on-demand install, exactly as a pip install does.
+    """
+    try:
+        from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+    except ImportError:      # pragma: no cover - only inside PyInstaller
+        return [], []
+    try:
+        import accessible_output2  # noqa: F401
+    except ImportError:
+        print("podharvest: accessible_output2 is not installed; the build "
+              "will fetch it on demand instead of shipping it.")
+        return [], []
+    datas = collect_data_files("accessible_output2", include_py_files=False)
+    hidden = collect_submodules("accessible_output2")
+    hidden += ["platform_utils", "platform_utils.paths", "libloader"]
+    dll_count = sum(1 for src, _dest in datas if src.lower().endswith(".dll"))
+    print(f"podharvest: bundling accessible_output2 "
+          f"({dll_count} screen reader libraries).")
+    return datas, hidden
+
+
+announce_datas, announce_hiddenimports = _announce_bundle()
+
+
 def _stable_abi_dll():
     """`python3.dll`, without which every abi3 wheel fails to load.
 
@@ -122,10 +166,11 @@ a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
     binaries=[*pip_binaries, *abi3_binaries],
-    datas=[*pip_datas],
+    datas=[*pip_datas, *announce_datas],
     hiddenimports=[
         *pip_hiddenimports,
         *stdlib_hiddenimports,
+        *announce_hiddenimports,
         "wx",
         "wx.adv",
         # wx.media backs the player. It is imported at the top of
@@ -204,6 +249,11 @@ a = Analysis(
         "podharvest.tags",
     ],
     hookspath=[],
+    # Runs before any application code, so accessible_output2 finds its
+    # screen reader libraries wherever this PyInstaller version put them.
+    # See the hook's own docstring: without it announcements import fine and
+    # then say nothing at all.
+    runtime_hooks=[str(Path(SPECPATH) / "rthook_accessible_output2.py")],  # noqa: F821
     excludes=[
         # Heavy/optional ML deps are installed on demand at runtime into the
         # portable app space (see podharvest/acquire.py) - never bundle them.

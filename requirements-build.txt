@@ -1,3 +1,21 @@
 # Tools needed only to build a standalone PyInstaller installer/bundle.
 # See scripts/build_installer.ps1.
 pyinstaller>=6.10
+
+# Bundled into the shipped app, not a dependency of the library.
+#
+# `pyproject.toml` declares `dependencies = []` and means it: the CLI runs on
+# the standard library, and a `pip install podharvest` stays that way -- if
+# announcements are wanted there, `acquire` fetches this on first use, into
+# the app space.
+#
+# The shipped Windows app is a different promise. Its audience is screen
+# reader users, and "the run finished" going unspoken until you find and
+# press a setup button is not a reasonable first experience. So the frozen
+# build carries it, and Settings shows announcements ready to switch on
+# rather than ready to install.
+#
+# It brings platform_utils and libloader with it, and ships the screen
+# reader client DLLs that packaging/podharvest.spec collects by hand --
+# without those the outputs import cleanly and then say nothing.
+accessible_output2>=0.17
