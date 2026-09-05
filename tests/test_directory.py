@@ -598,7 +598,7 @@ class TestTheMenuBar:
                   for label in walk(bar.GetMenu(index))]
         joined = " | ".join(labels)
         for wanted in ("Find a podcast", "Favourite podcasts",
-                       "Show episodes in this feed", "Download the selected",
+                       "Show episodes in this feed", "Set up models",
                        "Check what is installed"):
             assert wanted in joined, wanted
 

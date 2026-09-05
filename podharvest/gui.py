@@ -1213,8 +1213,9 @@ class MainFrame(wx.Frame):
         # -- Tools: this machine, and the models on it ----------------------
         tools_menu = wx.Menu()
         self._menu_download_model = tools_menu.Append(
-            wx.ID_ANY, "&Download the selected model",
-            "Fetch everything the chosen model needs, before a run needs it")
+            wx.ID_ANY, "Set &up models...",
+            "Every model podHarvest knows, what each needs, and a download "
+            "for the ones that are not here yet")
         self._menu_check_install = tools_menu.Append(
             wx.ID_ANY, "&Check what is installed...",
             "Which engines are downloaded, and whether they actually load")
@@ -1291,7 +1292,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self._toggle_status_bar, self._menu_status_bar)
         self.Bind(wx.EVT_MENU, self._on_minimise_to_tray, self._menu_tray)
 
-        self.Bind(wx.EVT_MENU, self._on_download_model, self._menu_download_model)
+        self.Bind(wx.EVT_MENU, self._on_setup_models, self._menu_download_model)
         self.Bind(wx.EVT_MENU, self._on_check_install, self._menu_check_install)
         self.Bind(wx.EVT_MENU, lambda evt: self.refresh_hardware(force=True),
                   self._menu_redetect)
@@ -3284,35 +3285,16 @@ class MainFrame(wx.Frame):
         right_box = wx.StaticBoxSizer(wx.VERTICAL, holder, "Transcript options")
         right_holder = right_box.GetStaticBox()
 
-        # Where models may come from. Disabled outright until a cloud provider
-        # has a key: an enabled control that can only ever hold one value wastes
-        # a stop in the tab order and invites the question "why can't I pick
-        # cloud?" every single time.
-        self.source_radio = wx.RadioBox(
-            right_holder, label="Show models that run",
-            choices=["&All", "On this &machine", "In the c&loud",
-                     "Already &downloaded"],
-            majorDimension=4, style=wx.RA_SPECIFY_COLS)
-        self.source_radio.SetToolTip(
-            "Which models the picker offers: everything, only those that run "
-            "on this machine, only cloud ones, or only the ones already "
-            "downloaded here. \"Already downloaded\" is the quick way back to "
-            "a model you have used before, with nothing to wait for. Options "
-            "that cannot apply are switched off rather than offered and then "
-            "refused - cloud needs an API key, and Already downloaded needs "
-            "something to have been downloaded."
-        )
-        # Nothing is known about this machine yet, so there is no honest
-        # choice to offer. It is switched on once hardware detection has said
-        # what is available -- see `_refresh_source_options`.
-        self.source_radio.Enable(False)
-        set_accessible_name(self.source_radio, "Show models that run")
-        self.source_radio.Bind(wx.EVT_RADIOBOX, self._on_source_changed)
-
+        # The filter that used to live here is in Set up models now. This
+        # window offers only what can run right now: a picker that lists
+        # things which then refuse to run is a picker that has to be
+        # explained every time, and the explaining belongs where the setting
+        # up happens.
         self.model_choice = wx.Choice(right_holder)
         self.model_choice.SetToolTip(
-            "Which model writes the transcripts. The box below says what it will cost you in "
-            "time for the podcast you have loaded."
+            "Which model writes the transcripts. Only models that can run "
+            "right now are listed -- Set up models beside it is where the "
+            "rest are, with what each one needs."
         )
         set_accessible_name(self.model_choice, "Transcription model")
         self.model_choice.Bind(wx.EVT_CHOICE, self._on_model_changed)
@@ -3338,15 +3320,14 @@ class MainFrame(wx.Frame):
         # and either can be missing, so the readout names which.
         self.model_ready = wx.StaticText(right_holder, label="Checking...")
         set_accessible_name(self.model_ready, "Whether this model is ready")
-        self.download_btn = wx.Button(right_holder, label="&Download model")
-        self.download_btn.SetToolTip(
-            "Fetches everything the selected model needs -- the engine's "
-            "Python packages and the model itself -- so the first run does not "
-            "stop to do it. Safe to press at any time: anything already here "
-            "is kept, and nothing else is touched. It can take several minutes "
-            "and a few gigabytes on a first run."
+        self.setup_btn = wx.Button(right_holder, label="Set &up models...")
+        self.setup_btn.SetToolTip(
+            "Opens the list of every model podHarvest knows: what each one "
+            "needs, whether it can run on this machine, and a Download for "
+            "the ones that are not here yet. Cloud models are listed too, "
+            "with what they need before they can be used."
         )
-        self.download_btn.Bind(wx.EVT_BUTTON, self._on_download_model)
+        self.setup_btn.Bind(wx.EVT_BUTTON, self._on_setup_models)
 
         self.chk_timestamps = wx.CheckBox(right_holder, label="&Include timestamps")
         self.chk_timestamps.SetToolTip(
@@ -3416,17 +3397,18 @@ class MainFrame(wx.Frame):
         set_accessible_name(self.line_width_ctrl, "Plain text line width")
         width_row.Add(self.line_width_ctrl, 0)
 
-        right_box.Add(self.source_radio, 0, wx.EXPAND | wx.BOTTOM, 6)
+        # Label before control, so a screen reader pairs the two. The picker
+        # and the way to get more models sit on one row: choosing and
+        # setting up are the same errand from the user's side, even though
+        # only one of them belongs on this window.
         right_box.Add(wx.StaticText(right_holder, label="Model:"), 0, wx.BOTTOM, 2)
-        right_box.Add(self.model_choice, 0, wx.EXPAND | wx.BOTTOM, 6)
+        model_row = wx.BoxSizer(wx.HORIZONTAL)
+        model_row.Add(self.model_choice, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        model_row.Add(self.setup_btn, 0)
+        right_box.Add(model_row, 0, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(wx.StaticText(right_holder, label="About this model:"), 0, wx.BOTTOM, 2)
         right_box.Add(self.model_info, 1, wx.EXPAND | wx.BOTTOM, 6)
-        # Label before button, so a screen reader reaches the sentence that
-        # explains why the button is there before it reaches the button.
-        ready_row = wx.BoxSizer(wx.HORIZONTAL)
-        ready_row.Add(self.model_ready, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        ready_row.Add(self.download_btn, 0)
-        right_box.Add(ready_row, 0, wx.EXPAND | wx.BOTTOM, 6)
+        right_box.Add(self.model_ready, 0, wx.EXPAND | wx.BOTTOM, 6)
         right_box.Add(self.chk_chapters, 0, wx.BOTTOM, 4)
         right_box.Add(self.chk_chapters_audio, 0, wx.LEFT | wx.BOTTOM, 18)
         right_box.Add(self.chk_timestamps, 0, wx.BOTTOM, 4)
@@ -3504,8 +3486,8 @@ class MainFrame(wx.Frame):
         self.chk_paragraphs.SetValue(s.transcript_paragraph_mode)
         self.chk_chapters.SetValue(s.write_chapters)
         self.chk_chapters_audio.SetValue(s.chapters_into_audio)
-        if s.model_filter in self._SOURCES:
-            self.source_radio.SetSelection(self._SOURCES.index(s.model_filter))
+        # `model_filter` is the Set up models window's own filter now, and it
+        # reads and writes the setting itself.
         self.line_width_ctrl.SetValue(s.transcript_max_line_chars or 0)
         self._on_toggle_transcribe(None)
         self._on_toggle_timestamp_style(None)
@@ -3527,7 +3509,6 @@ class MainFrame(wx.Frame):
         s.transcript_paragraph_mode = self.chk_paragraphs.GetValue()
         s.write_chapters = self.chk_chapters.GetValue()
         s.chapters_into_audio = self.chk_chapters_audio.GetValue()
-        s.model_filter = self._SOURCES[self.source_radio.GetSelection()]
         s.source_mode = self.source_mode()
         s.transcript_max_line_chars = self.line_width_ctrl.GetValue() or None
         selection = self.model_choice.GetSelection()
@@ -3608,14 +3589,9 @@ class MainFrame(wx.Frame):
     def _on_toggle_transcribe(self, _evt) -> None:
         on = self.chk_transcribe.GetValue()
         self._set_enabled(self._transcript_controls, on, fallback=self.chk_transcribe)
-        # The source picker has its own per-option rules -- a cloud key, and
-        # something actually downloaded -- so it is re-decided rather than
-        # simply switched back on. If it ends up disabled while it had focus,
-        # focus has to go somewhere: back to the checkbox that turned it off.
-        had_focus = self.source_radio.HasFocus()
-        self._refresh_source_options()
-        if had_focus and not self.source_radio.IsEnabled():
-            self.chk_transcribe.SetFocus()
+        # Setting up models is worth reaching whether or not this run will
+        # transcribe: it is how you get ready for the run after this one.
+        self.setup_btn.Enable(True)
         # These have their own conditions on top of this one, so re-apply them
         # or they end up enabled while their parent is off.
         self._on_toggle_timestamp_style(None)
@@ -3637,8 +3613,6 @@ class MainFrame(wx.Frame):
 
     # -- model picker -----------------------------------------------------
 
-    _SOURCES = ("all", "local", "cloud", "downloaded")
-
     def _refresh_cloud_availability(self) -> None:
         """Work out which cloud models could run, then re-offer the choices."""
         from podharvest import cloud as cloud_mod
@@ -3647,56 +3621,60 @@ class MainFrame(wx.Frame):
         self._refresh_source_options()
 
     def _refresh_source_options(self) -> None:
-        """Offer only the filters that could return something.
+        """Re-read what can run, and say so on the Set up models button.
 
-        Each option is switched on or off individually rather than the group
-        as a whole. An option that is present but cannot work is worse than one
-        that is absent: by keyboard it is a stop that accepts the selection and
-        then shows an empty model list, with nothing saying why.
-
-        The group itself stays off until hardware detection has found any model
-        at all, because before that every option is equally meaningless.
+        There used to be a filter here with four options, three of which
+        could be individually impossible. It is in the Set up models window
+        now, along with everything it filtered. What is left is the count on
+        the button, which is the part that was actually useful: it says
+        whether there is anything to set up before pressing Start.
         """
+        ready = self._ready_models()
         cloud = list(getattr(self, "_cloud_models", []))
-        local = list(getattr(self, "_local_models", []))
-        transcribing = self.chk_transcribe.GetValue()
-        downloaded = self._downloaded_models() if local else []
-
-        # There is nothing to filter until something is known.
-        self.source_radio.Enable(bool(local or cloud) and transcribing)
-
-        self.source_radio.EnableItem(self._SOURCES.index("local"), bool(local))
-        self.source_radio.EnableItem(self._SOURCES.index("cloud"), bool(cloud))
-        self.source_radio.EnableItem(
-            self._SOURCES.index("downloaded"), bool(downloaded))
-        # "All" is only a distinct answer when there is more than one source.
-        self.source_radio.EnableItem(
-            self._SOURCES.index("all"), bool(local and cloud))
-
-        # A selection that has just been switched off would silently filter the
-        # list to nothing, so move off it rather than leaving it standing.
-        if not self.source_radio.IsItemEnabled(self.source_radio.GetSelection()):
-            fallback = "local" if local else ("cloud" if cloud else "all")
-            self.source_radio.SetSelection(self._SOURCES.index(fallback))
-
-        parts = []
+        if not ready:
+            self.setup_btn.SetLabel("Set &up models...")
+            self.setup_btn.SetToolTip(
+                "No model can run yet. This window lists every model "
+                "podHarvest knows, what each needs, and downloads the one "
+                "you pick. Until then a run will fetch a model itself when "
+                "it starts.")
+            return
+        # The label carries the count, because a button's own label is what
+        # a screen reader reads when you land on it, and "3 ready" answers
+        # the question that brings you here.
+        self.setup_btn.SetLabel(f"Set &up models ({len(ready)} ready)...")
+        parts = [f"{len(ready)} model(s) can run right now."]
         if cloud:
             names = ", ".join(sorted({c.provider for c in cloud}))
-            parts.append(f"Cloud models are available for: {names}.")
+            parts.append(f"Cloud is set up for: {names}.")
         else:
             parts.append(
-                "Add an OpenAI or Google Gemini API key in Settings to use "
-                "cloud models. Until then everything runs on this machine.")
-        if downloaded:
-            parts.append(
-                f"{len(downloaded)} model(s) are already downloaded here; "
-                "\"Already downloaded\" narrows the list to those, which start "
-                "with nothing to wait for.")
-        else:
-            parts.append(
-                "Nothing is downloaded yet, so \"Already downloaded\" is off. "
-                "Use Download model, or just start a run.")
-        self.source_radio.SetToolTip(" ".join(parts))
+                "No cloud provider has a key yet, so everything runs on this "
+                "machine. This window lists the cloud models and what they "
+                "need.")
+        parts.append("It also lists models this machine cannot run, with the "
+                     "reason, rather than hiding them.")
+        self.setup_btn.SetToolTip(" ".join(parts))
+
+    def _ready_models(self) -> list:
+        """Every model that could transcribe right now, on-device or cloud.
+
+        "Ready" means nothing is missing: the engine's packages and the
+        weights are here, or it is a cloud model whose provider has a key.
+        This is the only list the main window offers, because a picker whose
+        entries then refuse to run has to be explained every single time.
+        """
+        from podharvest import acquire
+
+        ready = []
+        for choice in getattr(self, "_local_models", []):
+            try:
+                if (not acquire.engine_packages_missing(self.app_space, choice.engine)
+                        and acquire.is_downloaded(self.app_space, choice)):
+                    ready.append(choice)
+            except Exception:  # noqa: BLE001 - an unreadable manifest is "no"
+                continue
+        return ready + list(getattr(self, "_cloud_models", []))
 
     def _downloaded_models(self) -> list:
         """Every on-device model whose weights are already here.
@@ -3717,20 +3695,14 @@ class MainFrame(wx.Frame):
         return found
 
     def _visible_models(self) -> list:
-        source = self._SOURCES[self.source_radio.GetSelection()]
-        local = list(self._local_models)
-        cloud = list(getattr(self, "_cloud_models", []))
-        if not self.source_radio.IsEnabled():
-            return local
-        if source == "downloaded":
-            return self._downloaded_models()
-        if source == "local":
-            return local
-        if source == "cloud":
-            return cloud
-        if not cloud:
-            return local
-        return local + cloud
+        """What the main window's picker offers: models that can run now.
+
+        Before nothing has been downloaded this is empty, and that is the
+        honest answer -- Set up models says so and is where the fixing
+        happens. A run started with nothing ready still works: it fetches
+        what it needs, exactly as it always did.
+        """
+        return self._ready_models()
 
     def _populate_models(self, prefer: tuple[str, str] | None = None) -> None:
         """Refill the model list for the current filter, keeping the selection."""
@@ -3765,8 +3737,25 @@ class MainFrame(wx.Frame):
         index = self.model_choice.GetSelection()
         return self.model_choice.GetClientData(index) if index != wx.NOT_FOUND else None
 
-    def _on_source_changed(self, _evt) -> None:
-        self._populate_models()
+    def _on_setup_models(self, _evt=None) -> None:
+        """Open the inventory, and take whatever was chosen from it."""
+        from podharvest.model_manager import ModelManagerDialog
+
+        dlg = ModelManagerDialog(self, self.app_space, self.settings,
+                                 getattr(self, "_hw", None))
+        try:
+            dlg.ShowModal()
+            chosen = dlg.chosen
+        finally:
+            dlg.Destroy()
+        # Something may have been downloaded whether or not a model was
+        # chosen, so the picker is rebuilt either way.
+        self._refresh_cloud_availability()
+        self._populate_models(
+            prefer=(chosen.engine, chosen.model) if chosen is not None else None)
+        if chosen is not None:
+            LOG.info("Transcribing with %s.", chosen.model)
+        self.model_choice.SetFocus()
 
     def _on_model_changed(self, _evt) -> None:
         self._update_model_info()
@@ -3777,10 +3766,12 @@ class MainFrame(wx.Frame):
         choice = self._selected_model()
         if choice is None:
             self.model_info.SetValue(
-                "No transcription model is available yet. Hardware detection may still "
-                "be running.")
-            self.model_ready.SetLabel("No model selected.")
-            self.download_btn.Enable(False)
+                "No model is ready to run yet.\n\n"
+                "Set up models beside the picker lists every model "
+                "podHarvest knows, says what each one needs, and downloads "
+                "the one you choose. Starting a run without one still "
+                "works: it will fetch what it needs first.")
+            self.model_ready.SetLabel("No model ready. Press Set up models.")
             return
         text = estimate_mod.describe_model(choice, self._estimated_audio_seconds,
                                            getattr(self, "_hw", None), self.app_space)
@@ -3820,16 +3811,19 @@ class MainFrame(wx.Frame):
                          "will fetch them first.")
 
     def _refresh_model_ready(self) -> None:
-        """Update the readiness line for whatever is selected now."""
+        """Update the readiness line for whatever is selected now.
+
+        The picker only offers models that can run, so this line now
+        confirms rather than warns. It is kept because "ready" said out loud
+        before pressing Start is worth having, and because a model can stop
+        being ready between one launch and the next if its files are moved.
+        """
         choice = self._selected_model()
         if choice is None:
-            self.model_ready.SetLabel("No model selected.")
-            self.download_btn.Enable(False)
+            self.model_ready.SetLabel("No model ready. Press Set up models.")
             return
-        running = self._worker is not None and self._worker.is_alive()
-        ready, sentence = self._model_readiness(choice)
+        _ready, sentence = self._model_readiness(choice)
         self.model_ready.SetLabel(sentence)
-        self.download_btn.Enable(not ready and not running)
 
     def _on_download_model(self, _evt=None) -> None:
         """Fetch the selected model, in a window that says what it is doing.
@@ -4333,16 +4327,16 @@ class MainFrame(wx.Frame):
         return f"{count} episode" + ("s" if count != 1 else "")
 
     def _status_model_action(self) -> None:
-        """Enter on the Model cell: fetch it, or go to the picker."""
-        choice = self._selected_model()
-        if choice is None:
-            self.model_choice.SetFocus()
+        """Enter on the Model cell: go to the picker, or to setting one up.
+
+        With nothing ready the picker is empty, so sending focus there would
+        be sending it nowhere. The setting-up window is the answer to the
+        question the cell just raised.
+        """
+        if self._selected_model() is None:
+            self.setup_btn.SetFocus()
             return
-        ready, _sentence = self._model_readiness(choice)
-        if ready:
-            self.model_choice.SetFocus()
-        else:
-            self._on_download_model()
+        self.model_choice.SetFocus()
 
     def _focus_source(self) -> None:
         """Enter on the Source cell: go to whichever input is in use."""

@@ -619,6 +619,49 @@ ENRICHMENT_CHOICES: list[ModelChoice] = [
 ]
 
 
+def all_local_models() -> list[ModelChoice]:
+    """Every on-device model podHarvest knows, whatever the machine.
+
+    `available_models` answers "what can this machine run"; this answers
+    "what exists". The setting-up window needs the second, because a model
+    that is absent with no explanation is indistinguishable from one that
+    was never added -- which is exactly how a model nobody could find got
+    reported. Something too large for this machine is still worth listing,
+    with a line saying why it is not on offer.
+    """
+    return list(VOSK_CHOICES + MOONSHINE_CHOICES + WHISPER_CHOICES
+                + PARAKEET_ONNX_CHOICES + PARAKEET_CHOICES + CANARY_CHOICES)
+
+
+def needs_cuda(choice: ModelChoice) -> bool:
+    """Whether *choice* can only run on an NVIDIA GPU."""
+    return choice.engine in {"parakeet", "nemo-canary"}
+
+
+def fits(hw: Hardware, choice: ModelChoice) -> bool:
+    """Whether this machine has the memory and the hardware for *choice*."""
+    if needs_cuda(choice) and not hw.has_cuda:
+        return False
+    return choice.min_ram_gb <= max(hw.model_budget_gb, 1.0)
+
+
+def why_not(hw: Hardware, choice: ModelChoice) -> str:
+    """Why *choice* cannot run here, in words. "" when it can.
+
+    Said plainly and with the numbers, because "unavailable" invites a
+    support email and "needs 6 GB; this machine can give about 4.5" does
+    not.
+    """
+    if needs_cuda(choice) and not hw.has_cuda:
+        return ("Needs an NVIDIA graphics card with CUDA. This machine has "
+                f"{hw.accelerator}.")
+    budget = max(hw.model_budget_gb, 1.0)
+    if choice.min_ram_gb > budget:
+        return (f"Needs about {choice.min_ram_gb} GB. This machine can give "
+                f"a model about {budget} GB.")
+    return ""
+
+
 def available_models(hw: Hardware, app=None, *, include_cloud: bool = False) -> list[ModelChoice]:
     """Models this machine can run, optionally plus configured cloud models.
 

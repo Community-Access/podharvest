@@ -503,7 +503,7 @@ class TestTheReadinessReadout:
     def test_it_says_how_to_fix_it(self, frame, monkeypatch):
         monkeypatch.setattr(acquire, "is_downloaded", lambda _app, _choice: False)
         _ready, sentence = frame._model_readiness(self._choice())
-        assert "Download model" in sentence
+        assert "Download" in sentence
         assert "Start" in sentence, "pressing Start also works; say so"
 
     def test_a_cloud_model_needs_no_download(self, frame):
@@ -513,12 +513,21 @@ class TestTheReadinessReadout:
         assert "nothing to download" in sentence
         assert "API key" in sentence, "say what it does need"
 
-    def test_the_button_is_offered_only_when_there_is_something_to_fetch(self, frame):
+    def test_the_main_window_offers_only_models_that_can_run(self, frame):
+        """A picker whose entries then refuse to run has to be explained
+        every time. Setting up is a separate errand, in its own window."""
         import inspect
 
-        source = inspect.getsource(frame._refresh_model_ready.__func__)
-        assert "self.download_btn.Enable(not ready" in source
-        assert "running" in source, "and never while a run owns the app space"
+        source = inspect.getsource(frame._visible_models.__func__)
+        assert "_ready_models" in source
+
+    def test_ready_means_nothing_is_missing(self, frame):
+        import inspect
+
+        source = inspect.getsource(frame._ready_models.__func__)
+        assert "engine_packages_missing" in source
+        assert "is_downloaded" in source
+        assert "_cloud_models" in source, "a cloud model with a key is ready too"
 
     def test_downloading_uses_the_same_calls_a_run_does(self, frame):
         """Otherwise Download and Start could disagree about "downloaded".
@@ -596,95 +605,69 @@ class TestTheModelSourceFilter:
         return ModelChoice(engine=engine, model=model, min_ram_gb=1.0,
                            label=f"{engine} {model}")
 
-    def test_downloaded_is_offered_as_a_filter(self, frame):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
+    def test_the_picker_offers_only_what_can_run(self, frame, monkeypatch):
+        """The heart of the redesign.
 
-        assert "downloaded" in MainFrame._SOURCES
-        labels = [frame.source_radio.GetString(i)
-                  for i in range(frame.source_radio.GetCount())]
-        assert any("downloaded" in label.lower() for label in labels)
+        Offering a model that then refuses to run means explaining the
+        refusal every time. The main window offers what is ready; Set up
+        models is where everything else lives, with a word on each saying
+        what it needs.
+        """
+        ready = self._model(model="tiny.en")
+        not_ready = self._model(model="large-v3")
+        frame._local_models = [ready, not_ready]
+        frame._cloud_models = []
+        monkeypatch.setattr(acquire, "engine_packages_missing",
+                            lambda _app, _engine: [])
+        monkeypatch.setattr(acquire, "is_downloaded",
+                            lambda _app, choice: choice.model == "tiny.en")
+        assert frame._visible_models() == [ready]
 
-    def test_the_group_is_dark_until_anything_is_known(self, frame):
-        """Before hardware detection every option is equally meaningless."""
+    def test_a_cloud_model_with_a_key_counts_as_ready(self, frame, monkeypatch):
+        """There is nothing to download for one, so waiting would be absurd."""
+        cloud = self._model(engine="openai", model="whisper-1")
         frame._local_models = []
+        frame._cloud_models = [cloud]
+        monkeypatch.setattr(acquire, "is_downloaded", lambda _a, _c: False)
+        assert frame._ready_models() == [cloud]
+
+    def test_nothing_ready_is_an_honest_empty_list(self, frame, monkeypatch):
+        """And the window says so rather than offering something that fails."""
+        frame._local_models = [self._model()]
+        frame._cloud_models = []
+        monkeypatch.setattr(acquire, "is_downloaded", lambda _a, _c: False)
+        assert frame._ready_models() == []
+        frame._populate_models()
+        assert frame.model_info.GetValue().startswith("No model is ready")
+        assert "Set up models" in frame.model_ready.GetLabel()
+
+    def test_the_setup_button_carries_the_count(self, frame, monkeypatch):
+        """A button's label is what a screen reader reads on arrival."""
+        monkeypatch.setattr(acquire, "engine_packages_missing",
+                            lambda _app, _engine: [])
+        monkeypatch.setattr(acquire, "is_downloaded", lambda _a, _c: True)
+        frame._local_models = [self._model(), self._model(model="base.en")]
         frame._cloud_models = []
         frame._refresh_source_options()
-        assert frame.source_radio.IsEnabled() is False
+        assert "2 ready" in frame.setup_btn.GetLabel()
 
-    def test_cloud_stays_off_without_a_key(self, frame):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
-
+    def test_the_setup_button_says_nothing_is_ready_when_nothing_is(
+            self, frame, monkeypatch):
+        monkeypatch.setattr(acquire, "is_downloaded", lambda _a, _c: False)
         frame._local_models = [self._model()]
         frame._cloud_models = []
         frame._refresh_source_options()
-        assert frame.source_radio.IsEnabled() is True
-        assert frame.source_radio.IsItemEnabled(
-            MainFrame._SOURCES.index("cloud")) is False
+        assert "ready" not in frame.setup_btn.GetLabel()
+        assert "No model can run yet" in frame.setup_btn.GetToolTip().GetTip()
 
-    def test_cloud_lights_up_when_a_key_exists(self, frame):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
-
-        frame._local_models = [self._model()]
-        frame._cloud_models = [self._model(engine="openai", model="whisper-1")]
-        frame._refresh_source_options()
-        assert frame.source_radio.IsItemEnabled(
-            MainFrame._SOURCES.index("cloud")) is True
-        # And "All" only means something once there is more than one source.
-        assert frame.source_radio.IsItemEnabled(
-            MainFrame._SOURCES.index("all")) is True
-
-    def test_downloaded_stays_off_until_something_is(self, frame, monkeypatch):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
+    def test_an_unreadable_manifest_reads_as_not_ready(self, frame, monkeypatch):
+        def explode(_app, _choice):
+            raise OSError("manifest is gibberish")
 
         frame._local_models = [self._model()]
         frame._cloud_models = []
-        monkeypatch.setattr(frame, "_downloaded_models", lambda: [])
-        frame._refresh_source_options()
-        assert frame.source_radio.IsItemEnabled(
-            MainFrame._SOURCES.index("downloaded")) is False
-
-    def test_downloaded_lights_up_once_something_is(self, frame, monkeypatch):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
-
-        model = self._model()
-        frame._local_models = [model]
-        frame._cloud_models = []
-        monkeypatch.setattr(frame, "_downloaded_models", lambda: [model])
-        frame._refresh_source_options()
-        assert frame.source_radio.IsItemEnabled(
-            MainFrame._SOURCES.index("downloaded")) is True
-
-    def test_it_never_sits_on_an_option_it_just_switched_off(self, frame):
-        """Otherwise the model list silently empties and nothing says why."""
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
-
-        frame._local_models = [self._model()]
-        frame._cloud_models = [self._model(engine="openai", model="whisper-1")]
-        frame._refresh_source_options()
-        frame.source_radio.SetSelection(MainFrame._SOURCES.index("cloud"))
-
-        frame._cloud_models = []          # the key was removed
-        frame._refresh_source_options()
-        assert frame.source_radio.IsItemEnabled(frame.source_radio.GetSelection())
-
-    def test_the_filter_actually_narrows_the_list(self, frame, monkeypatch):
-        pytest.importorskip("wx")
-        from podharvest.gui import MainFrame
-
-        kept = self._model(model="tiny.en")
-        other = self._model(model="large-v3")
-        frame._local_models = [kept, other]
-        frame._cloud_models = []
-        monkeypatch.setattr(frame, "_downloaded_models", lambda: [kept])
-        frame._refresh_source_options()
-        frame.source_radio.SetSelection(MainFrame._SOURCES.index("downloaded"))
-        assert frame._visible_models() == [kept]
+        monkeypatch.setattr(acquire, "is_downloaded", explode)
+        assert frame._ready_models() == []
 
     def test_cloud_models_are_never_called_downloaded(self, frame, monkeypatch):
         """There is nothing to download for them, so the word would mislead."""

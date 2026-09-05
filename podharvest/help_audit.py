@@ -37,7 +37,7 @@ _SNAPSHOT = _ROOT.parent / "tests" / "help_inventory.json"
 SCAN_FILES: tuple[str, ...] = (
     "gui.py", "editor.py", "player.py", "reader.py", "discover.py",
     "status_bar.py", "chapter_jump.py", "transcript_search.py",
-    "model_download.py",
+    "model_download.py", "model_manager.py",
 )
 
 #: wx classes a person can focus and therefore press F1 on. `StaticText` is
