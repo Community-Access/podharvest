@@ -93,15 +93,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; marker (an installed copy is never "portable" - it belongs to one user
 ; profile, which is the whole point of an installer over a zip).
 Source: "..\dist\podharvest\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "portable.flag"
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\docs\GETTING_STARTED.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "..\docs\REFERENCE.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "..\docs\MODELS.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "..\docs\ACCESSIBILITY.md"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "..\docs\CODE-REVIEW-2026-09.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+; The README, licence, changelog and docs folder are not listed here: they
+; are placed in dist\podharvest by scripts\build_installer.ps1, so the line
+; above carries them. Naming them in both places is how the portable
+; download ended up with a README and nothing else -- the installer had its
+; own list, the zip did not, and the two quietly disagreed.
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui"

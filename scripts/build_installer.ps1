@@ -105,8 +105,29 @@ try {
 
     $distDir = Join-Path $root "dist\podharvest"
     New-Item -ItemType File -Path (Join-Path $distDir "portable.flag") -Force | Out-Null
-    Copy-Item -Path (Join-Path $root "README.md") -Destination $distDir -ErrorAction SilentlyContinue
-    Copy-Item -Path (Join-Path $root "LICENSE") -Destination $distDir -ErrorAction SilentlyContinue
+
+    # The documentation travels with the app, both ways it ships. The
+    # installer used to name these files itself, so the *portable* download
+    # arrived with a README and nothing else -- no changelog, no reference,
+    # no accessibility statement, and REFERENCE.md linking to a SHARED.md
+    # that was not there. Putting them in the build folder fixes both at
+    # once, because the installer copies that folder wholesale.
+    foreach ($file in @("README.md", "LICENSE", "CHANGELOG.md", "SECURITY.md")) {
+        Copy-Item -Path (Join-Path $root $file) -Destination $distDir -ErrorAction SilentlyContinue
+    }
+    $docsOut = Join-Path $distDir "docs"
+    New-Item -ItemType Directory -Force -Path $docsOut | Out-Null
+    foreach ($doc in @("GETTING_STARTED.md", "REFERENCE.md", "MODELS.md",
+                       "ACCESSIBILITY.md", "SHARED.md", "CODE-REVIEW-2026-09.md")) {
+        $source = Join-Path $root "docs\$doc"
+        if (Test-Path $source) {
+            Copy-Item -Path $source -Destination $docsOut
+        }
+        else {
+            Write-Warning "docs\$doc is named by the build but is not there."
+        }
+    }
+    Write-Host "  Docs   : $((Get-ChildItem $docsOut -Filter *.md).Count) documents bundled"
 
     # Signed before zipping, so the portable download carries signatures too.
     # Every executable image is signed, not just the launcher: a bundle where
